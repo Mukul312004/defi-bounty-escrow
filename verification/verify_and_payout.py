@@ -60,7 +60,7 @@ def trigger_payout(bounty_id, researcher_address):
         signed_tx = w3.eth.account.sign_transaction(tx, private_key=private_key)
 
         # 3. Broadcast it to the network
-        tx_hash = w3.eth.send_raw_transaction(signed_tx.rawTransaction)
+        tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
         print(f"[Oracle] Transaction broadcasted! Hash: {w3.to_hex(tx_hash)}")
         
         # 4. Wait for confirmation
