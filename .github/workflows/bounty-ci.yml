@@ -1,0 +1,66 @@
+name: Bounty Escrow CI Pipeline
+
+# For the MVP, we use workflow_dispatch so you can trigger this manually 
+# from the GitHub UI, simulating a backend API call from the React frontend.
+on:
+  workflow_dispatch:
+    inputs:
+      bounty_id:
+        description: 'The ID of the bounty being claimed'
+        required: true
+        type: string
+      researcher_address:
+        description: 'The wallet address of the researcher submitting the PoE'
+        required: true
+        type: string
+
+jobs:
+  verify-exploit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Create Isolated Docker Network
+        # This allows the containers to talk to each other using container names as hostnames
+        run: docker network create bounty-net
+
+      - name: Build and Run Vulnerable App
+        run: |
+          docker build -t target-app ./vulnerable-app
+          # Start in detached mode (-d) so it runs in the background
+          docker run -d --name vulnerable-app --network bounty-net target-app
+          
+          # Give Flask a few seconds to fully boot up
+          sleep 5
+
+      - name: Build and Run Proof-of-Exploit (PoE)
+        run: |
+          docker build -t poe-exploit ./exploit-poe
+          
+          # Run the exploit container and capture its standard output into a JSON file
+          docker run --network bounty-net poe-exploit > exploit_output.json
+          
+          # Print the output to the CI logs for debugging
+          echo "Exploit Output:"
+          cat exploit_output.json
+
+      - name: Setup Python for Verification Oracle
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install Web3.py
+        run: pip install web3
+
+      - name: Run Verification & Trigger Smart Contract Payout
+        # Inject our sensitive blockchain credentials as environment variables
+        env:
+          ORACLE_PRIVATE_KEY: ${{ secrets.ORACLE_PRIVATE_KEY }}
+          RPC_URL: ${{ secrets.RPC_URL }}
+          CONTRACT_ADDRESS: ${{ secrets.CONTRACT_ADDRESS }}
+        run: |
+          python ./verification/verify_and_payout.py \
+            --bounty_id "${{ github.event.inputs.bounty_id }}" \
+            --researcher "${{ github.event.inputs.researcher_address }}" \
+            --output_file "exploit_output.json"

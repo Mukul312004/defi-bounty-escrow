@@ -1,0 +1,13 @@
+# Node dependencies
+frontend/node_modules/
+frontend/dist/
+
+# Python caching
+__pycache__/
+*.pyc
+
+# Local databases
+vulnerable-app/database.db
+
+# Environment variables (just in case)
+.env
