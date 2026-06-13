@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { BrowserProvider, Contract, parseEther, formatEther } from 'ethers';
 import { CONTRACT_ADDRESS, CONTRACT_ABI } from './constants';
 import './App.css';
@@ -12,7 +12,7 @@ const INITIAL_BOUNTIES = [
     isActive: true,
     title: "SQL Injection Flag Extraction",
     category: "SQL Injection",
-    repo: "github.com/defi-escrow/sql-sandbox-app",
+    repo: "github.com/Mukul312004/defi-bounty-escrow",
     description: "Extract the value stored in the secrets table via the /search endpoint."
   },
   {
@@ -56,7 +56,7 @@ function App() {
   const [bountyAmount, setBountyAmount] = useState('');
   const [bountyTitle, setBountyTitle] = useState('');
   const [bountyCategory, setBountyCategory] = useState('SQL Injection');
-  const [bountyRepo, setBountyRepo] = useState('');
+  const [bountyRepo, setBountyRepo] = useState('github.com/Mukul312004/defi-bounty-escrow');
   const [bountyDesc, setBountyDesc] = useState('');
   
   const [searchBountyId, setSearchBountyId] = useState('');
@@ -71,12 +71,37 @@ function App() {
   const [terminalLogs, setTerminalLogs] = useState([]);
   const [toast, setToast] = useState({ show: false, message: '', type: 'info' });
 
+  // GitHub Settings states (saved in localStorage)
+  const [githubToken, setGithubToken] = useState(localStorage.getItem('gh_token') || '');
+  const [githubOwner, setGithubOwner] = useState(localStorage.getItem('gh_owner') || 'Mukul312004');
+  const [githubRepoName, setGithubRepoName] = useState(localStorage.getItem('gh_repo') || 'defi-bounty-escrow');
+  const [showSettings, setShowSettings] = useState(false);
+
+  const pollIntervalRef = useRef(null);
+
   // Auto-fill researcher wallet address when wallet connects
   useEffect(() => {
     if (account) {
       setResearcherPayoutAddress(account);
     }
   }, [account]);
+
+  // Clean up polling on unmount
+  useEffect(() => {
+    return () => {
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+    };
+  }, []);
+
+  // Save GitHub configs to localStorage
+  const saveGithubSettings = (e) => {
+    e.preventDefault();
+    localStorage.setItem('gh_token', githubToken);
+    localStorage.setItem('gh_owner', githubOwner);
+    localStorage.setItem('gh_repo', githubRepoName);
+    showToast("GitHub integration settings saved!", "success");
+    setShowSettings(false);
+  };
 
   // Toast notification helper
   const showToast = (message, type = 'info') => {
@@ -155,7 +180,7 @@ function App() {
           isActive: true,
           title: bountyTitle,
           category: bountyCategory,
-          repo: bountyRepo || "github.com/defi-escrow/private-repo",
+          repo: bountyRepo || `github.com/${githubOwner}/${githubRepoName}`,
           description: bountyDesc || "Audit project sandbox and submit proof of exploit."
         };
         
@@ -165,7 +190,6 @@ function App() {
         // Reset inputs
         setBountyAmount('');
         setBountyTitle('');
-        setBountyRepo('');
         setBountyDesc('');
       } catch (error) {
         console.error(error);
@@ -181,7 +205,7 @@ function App() {
         isActive: true,
         title: bountyTitle,
         category: bountyCategory,
-        repo: bountyRepo || "github.com/defi-escrow/sandbox-repo",
+        repo: bountyRepo || `github.com/${githubOwner}/${githubRepoName}`,
         description: bountyDesc || "Sandbox bounty. Submit docker exploit to test logic."
       };
       
@@ -194,7 +218,6 @@ function App() {
       // Reset inputs
       setBountyAmount('');
       setBountyTitle('');
-      setBountyRepo('');
       setBountyDesc('');
     }
   };
@@ -221,17 +244,201 @@ function App() {
     showToast(`Selected Bounty #${bounty.id}`, "info");
   };
 
-  // Automated hacker terminal simulation
-  const writeLog = (text, delay) => {
+  // Helper to add lines to terminal logs
+  const appendLog = (text) => {
+    setTerminalLogs(prev => [...prev, text]);
+  };
+
+  // Automated mock hacker terminal simulation (Fallback mode)
+  const writeLogWithDelay = (text, delay) => {
     return new Promise((resolve) => {
       setTimeout(() => {
-        setTerminalLogs(prev => [...prev, text]);
+        appendLog(text);
         resolve();
       }, delay);
     });
   };
 
-  const runVerificationPipeline = async () => {
+  const runMockSimulation = async () => {
+    setCurrentStep(1);
+    await writeLogWithDelay(`[SYSTEM] Starting Local CI Simulation for Bounty #${selectedBounty.id}...`, 200);
+    await writeLogWithDelay(`[SYSTEM] Pulling target base environment (Ubuntu 22.04 LTS)...`, 300);
+    await writeLogWithDelay(`[DOCKER] Creating isolated bridge network 'bounty-net'... Done.`, 400);
+    
+    setCurrentStep(2);
+    await writeLogWithDelay(`[DOCKER] Launching Vulnerable Application environment...`, 300);
+    await writeLogWithDelay(`[DOCKER] Target host configured: http://vulnerable-app:5000`, 200);
+    await writeLogWithDelay(`[DOCKER] Initializing SQLite tables: 'users', 'secrets'...`, 400);
+    await writeLogWithDelay(`[DATABASE] Seeded admin accounts & target flag.`, 200);
+    await writeLogWithDelay(`[DOCKER] Web application is online, listening on port 5000.`, 300);
+    
+    setCurrentStep(3);
+    await writeLogWithDelay(`[DOCKER] Pulling researcher exploit image: ${poeImage}...`, 400);
+    await writeLogWithDelay(`[DOCKER] Image successfully resolved. Spawning exploit process.`, 200);
+    await writeLogWithDelay(`[EXPLOIT] Running exploit script against target endpoint...`, 400);
+    
+    if (selectedBounty.category === "SQL Injection") {
+      await writeLogWithDelay(`[EXPLOIT] Injecting Payload: ' UNION SELECT flag, 'exploited' FROM secrets --`, 400);
+      await writeLogWithDelay(`[EXPLOIT] Received HTTP 200 Response from target.`, 200);
+      await writeLogWithDelay(`[EXPLOIT] Extracted database content: {"success": true, "flag": "flag{sql_injection_success}"}`, 400);
+    } else {
+      await writeLogWithDelay(`[EXPLOIT] Deploying Malicious Attack Contract...`, 400);
+      await writeLogWithDelay(`[EXPLOIT] Draining target contracts...`, 500);
+      await writeLogWithDelay(`[EXPLOIT] Extracted cryptographic proof. Flag retrieved.`, 400);
+    }
+
+    setCurrentStep(4);
+    await writeLogWithDelay(`[CI-ORACLE] Dumping exploit log output to 'exploit_output.json'...`, 200);
+    await writeLogWithDelay(`[CI-ORACLE] Starting validation check...`, 200);
+    await writeLogWithDelay(`[CI-ORACLE] VERIFICATION MATCH: "flag{sql_injection_success}" matched!`, 300);
+    await writeLogWithDelay(`[CI-ORACLE] STATUS: Valid Proof-of-Exploit confirmed.`, 200);
+
+    setCurrentStep(5);
+    await writeLogWithDelay(`[ORACLE-BLOCKCHAIN] Connecting to blockchain provider...`, 300);
+    await writeLogWithDelay(`[ORACLE-BLOCKCHAIN] resolveBounty(${selectedBounty.id}, ${researcherPayoutAddress})`, 400);
+    
+    if (isWeb3Mode && contract) {
+      const simulatedHash = "0x" + Array.from({length: 64}, () => Math.floor(Math.random()*16).toString(16)).join('');
+      await writeLogWithDelay(`[ORACLE-BLOCKCHAIN] Transaction Broadcasted! Hash: ${simulatedHash}`, 300);
+      await writeLogWithDelay(`[SYSTEM] Bounty #${selectedBounty.id} successfully resolved on-chain!`, 200);
+    } else {
+      await writeLogWithDelay(`[ORACLE-SANDBOX] Escrow balance release executed locally.`, 300);
+      await writeLogWithDelay(`[SYSTEM] Bounty #${selectedBounty.id} successfully resolved in sandbox!`, 200);
+    }
+
+    // Update States
+    setBountiesList(prev => prev.map(b => b.id === selectedBounty.id ? { ...b, isActive: false } : b));
+    setSelectedBounty(prev => ({ ...prev, isActive: false }));
+    setTvl(prev => Math.max(0, (parseFloat(prev) - parseFloat(selectedBounty.amount))).toFixed(2));
+    setResolvedCount(prev => prev + 1);
+    setPipelineStatus('success');
+    showToast(`Bounty #${selectedBounty.id} resolved and paid out!`, "success");
+  };
+
+  // Real GitHub API Dispatch & Polling
+  const triggerGitHubAction = async () => {
+    setPipelineStatus('running');
+    setCurrentStep(1);
+    setTerminalLogs([]);
+    appendLog(`[SYSTEM] Contacting GitHub API to trigger workflow 'bounty-ci.yml'...`);
+
+    try {
+      // Trigger the workflow_dispatch event
+      const dispatchUrl = `https://api.github.com/repos/${githubOwner}/${githubRepoName}/actions/workflows/bounty-ci.yml/dispatches`;
+      const dispatchResponse = await fetch(dispatchUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${githubToken}`,
+          'Accept': 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28',
+        },
+        body: JSON.stringify({
+          ref: 'main',
+          inputs: {
+            bounty_id: searchBountyId,
+            researcher_address: researcherPayoutAddress
+          }
+        })
+      });
+
+      if (!dispatchResponse.ok) {
+        const errData = await dispatchResponse.json().catch(() => ({}));
+        throw new Error(errData.message || `GitHub returned HTTP ${dispatchResponse.status}`);
+      }
+
+      appendLog(`[SYSTEM] GitHub Action successfully triggered!`);
+      appendLog(`[SYSTEM] Polling GitHub for running workflow pipeline status...`);
+      
+      // Start polling for workflow runs
+      let pollCount = 0;
+      let targetRunId = null;
+
+      pollIntervalRef.current = setInterval(async () => {
+        pollCount++;
+        if (pollCount > 36) { // 3 minutes timeout (5s * 36)
+          clearInterval(pollIntervalRef.current);
+          setPipelineStatus('failed');
+          appendLog(`[SYSTEM] TIMEOUT: GitHub Action run took too long. Check GitHub UI.`);
+          showToast("GitHub Action polling timed out.", "error");
+          return;
+        }
+
+        try {
+          const runsUrl = `https://api.github.com/repos/${githubOwner}/${githubRepoName}/actions/runs?event=workflow_dispatch&per_page=5`;
+          const runsRes = await fetch(runsUrl, {
+            headers: {
+              'Authorization': `Bearer ${githubToken}`,
+              'Accept': 'application/vnd.github+json',
+            }
+          });
+
+          if (!runsRes.ok) return;
+          const runsData = await runsRes.json();
+          
+          // Find the latest workflow run
+          const latestRun = runsData.workflow_runs?.[0];
+          if (!latestRun) return;
+
+          // If we haven't locked onto a run ID yet, check if the run is recent
+          if (!targetRunId) {
+            const runTime = new Date(latestRun.created_at).getTime();
+            const now = new Date().getTime();
+            if (now - runTime < 60000) { // triggered in the last 60 seconds
+              targetRunId = latestRun.id;
+              appendLog(`[CI] Tracked GitHub Actions Run ID: #${targetRunId}`);
+              appendLog(`[CI] View live status online: ${latestRun.html_url}`);
+            } else {
+              return; // wait for the next poll
+            }
+          }
+
+          // Fetch state for our tracked run
+          if (latestRun.id === targetRunId) {
+            const status = latestRun.status; // queued, in_progress, completed
+            const conclusion = latestRun.conclusion; // success, failure, cancelled
+            
+            appendLog(`[CI] Pipeline Status Update: ${status.toUpperCase()} (Conclusion: ${conclusion || 'RUNNING'})`);
+
+            if (status === 'queued') {
+              setCurrentStep(1);
+            } else if (status === 'in_progress') {
+              // Simulate progress steps based on elapsed time or simple incremental updates
+              setCurrentStep(prev => prev < 4 ? prev + 1 : prev);
+            } else if (status === 'completed') {
+              clearInterval(pollIntervalRef.current);
+              
+              if (conclusion === 'success') {
+                setCurrentStep(5);
+                setPipelineStatus('success');
+                appendLog(`[CI-ORACLE] SUCCESS: Proof-of-Exploit validated and payout executed on-chain!`);
+                
+                // Update local list
+                setBountiesList(prev => prev.map(b => b.id === selectedBounty.id ? { ...b, isActive: false } : b));
+                setSelectedBounty(prev => ({ ...prev, isActive: false }));
+                setTvl(prev => Math.max(0, (parseFloat(prev) - parseFloat(selectedBounty.amount))).toFixed(2));
+                setResolvedCount(prev => prev + 1);
+
+                showToast(`Bounty #${selectedBounty.id} successfully resolved online!`, "success");
+              } else {
+                setPipelineStatus('failed');
+                appendLog(`[CI-ORACLE] FAILED: GitHub Pipeline failed. The exploit was rejected or a chain error occurred.`);
+                showToast("Verification failed. Check GitHub Logs.", "error");
+              }
+            }
+          }
+        } catch (pollErr) {
+          console.error("Error polling run:", pollErr);
+        }
+      }, 5000);
+
+    } catch (err) {
+      appendLog(`[SYSTEM] ERROR: Failed to trigger workflow: ${err.message}`);
+      setPipelineStatus('failed');
+      showToast("Failed to dispatch GitHub Action.", "error");
+    }
+  };
+
+  const runVerificationPipeline = () => {
     if (!selectedBounty) {
       showToast("Please query or select a target bounty first", "warning");
       return;
@@ -249,81 +456,13 @@ function App() {
       return;
     }
 
-    // Set state to running
-    setPipelineStatus('running');
-    setCurrentStep(1);
-    setTerminalLogs([]);
-
-    // Line-by-line CI output simulation
-    await writeLog(`[SYSTEM] Starting GitHub CI Sandbox Runner for Bounty #${selectedBounty.id}...`, 200);
-    await writeLog(`[SYSTEM] Pulling target base environment (Ubuntu 22.04 LTS)...`, 400);
-    await writeLog(`[DOCKER] Creating isolated bridge network 'bounty-net'... Done.`, 500);
-    
-    setCurrentStep(2);
-    await writeLog(`[DOCKER] Launching Vulnerable Application environment...`, 400);
-    await writeLog(`[DOCKER] Target host configured: http://vulnerable-app:5000`, 300);
-    await writeLog(`[DOCKER] Initializing SQLite tables: 'users', 'secrets'...`, 500);
-    await writeLog(`[DATABASE] Seeded admin accounts & target flag.`, 200);
-    await writeLog(`[DOCKER] Web application is online, listening on port 5000.`, 400);
-    
-    setCurrentStep(3);
-    await writeLog(`[DOCKER] Pulling researcher exploit image: ${poeImage}...`, 600);
-    await writeLog(`[DOCKER] Image successfully resolved and spun up.`, 300);
-    await writeLog(`[EXPLOIT] Running exploit script against target endpoint...`, 500);
-    
-    // Simulate real exploit logic depending on the bounty type
-    if (selectedBounty.category === "SQL Injection") {
-      await writeLog(`[EXPLOIT] Injecting Payload: ' UNION SELECT flag, 'exploited' FROM secrets --`, 600);
-      await writeLog(`[EXPLOIT] Received HTTP 200 Response from target.`, 200);
-      await writeLog(`[EXPLOIT] Extracted database content: {"success": true, "flag": "flag{sql_injection_success}"}`, 500);
-    } else if (selectedBounty.category === "Reentrancy") {
-      await writeLog(`[EXPLOIT] Deploying Malicious Attack Contract...`, 500);
-      await writeLog(`[EXPLOIT] Initiating attack transaction callback loop...`, 700);
-      await writeLog(`[EXPLOIT] Target contract balance drained to 0. Flag retrieved.`, 600);
+    // Choose mode based on whether a GitHub Token is configured
+    if (githubToken) {
+      triggerGitHubAction();
     } else {
-      await writeLog(`[EXPLOIT] Running fuzzing tools against protocol endpoints...`, 700);
-      await writeLog(`[EXPLOIT] Extracted cryptographic proof. Flag retrieved.`, 600);
+      showToast("GitHub Token not found. Running in simulation mode.", "info");
+      runMockSimulation();
     }
-
-    setCurrentStep(4);
-    await writeLog(`[CI-ORACLE] Dumping exploit log output to 'exploit_output.json'...`, 300);
-    await writeLog(`[CI-ORACLE] Starting validation check...`, 200);
-    await writeLog(`[CI-ORACLE] Comparing submitted flag output with target escrow hash...`, 400);
-    await writeLog(`[CI-ORACLE] VERIFICATION MATCH: "flag{sql_injection_success}" matched!`, 400);
-    await writeLog(`[CI-ORACLE] STATUS: Valid Proof-of-Exploit confirmed.`, 300);
-
-    setCurrentStep(5);
-    await writeLog(`[ORACLE-BLOCKCHAIN] Connecting to blockchain provider...`, 400);
-    await writeLog(`[ORACLE-BLOCKCHAIN] Initializing payout interface for BountyEscrow at ${CONTRACT_ADDRESS}`, 200);
-    
-    if (isWeb3Mode && contract) {
-      await writeLog(`[ORACLE-BLOCKCHAIN] Broadcasing transaction: resolveBounty(${selectedBounty.id}, ${researcherPayoutAddress})`, 600);
-      await writeLog(`[ORACLE-BLOCKCHAIN] Transaction submitted from Oracle Wallet (0x3914...f9C1)`, 300);
-      await writeLog(`[ORACLE-BLOCKCHAIN] Waiting for network confirmations...`, 500);
-      
-      // Simulate/Trigger actual oracle contract interaction
-      // Note: In reality, the GitHub Actions runs the Python script to trigger the payout.
-      // Here, to make it feel REAL and interactive:
-      // If we are connected, we can display the Sepolia link
-      const simulatedHash = "0x" + Array.from({length: 64}, () => Math.floor(Math.random()*16).toString(16)).join('');
-      await writeLog(`[ORACLE-BLOCKCHAIN] Block Confirmed! Gas used: 64,821 gwei.`, 400);
-      await writeLog(`[ORACLE-BLOCKCHAIN] TRANSACTION CONFIRMED. Hash: ${simulatedHash}`, 200);
-      await writeLog(`[SYSTEM] Bounty #${selectedBounty.id} successfully resolved on-chain!`, 300);
-    } else {
-      // Sandbox Mode Payout
-      await writeLog(`[ORACLE-SANDBOX] Simulating gas call resolveBounty(${selectedBounty.id}, ${researcherPayoutAddress})`, 500);
-      await writeLog(`[ORACLE-SANDBOX] Escrow balance release executed locally.`, 400);
-      await writeLog(`[ORACLE-SANDBOX] Mock transaction broadcast complete.`, 300);
-      await writeLog(`[SYSTEM] Bounty #${selectedBounty.id} successfully resolved in sandbox!`, 200);
-    }
-
-    // Update States
-    setBountiesList(prev => prev.map(b => b.id === selectedBounty.id ? { ...b, isActive: false } : b));
-    setSelectedBounty(prev => ({ ...prev, isActive: false }));
-    setTvl(prev => Math.max(0, (parseFloat(prev) - parseFloat(selectedBounty.amount))).toFixed(2));
-    setResolvedCount(prev => prev + 1);
-    setPipelineStatus('success');
-    showToast(`Bounty #${selectedBounty.id} resolved and paid out!`, "success");
   };
 
   return (
@@ -369,6 +508,18 @@ function App() {
           </div>
 
           <div className="flex items-center gap-4">
+            {/* Settings Toggle Gear */}
+            <button 
+              onClick={() => setShowSettings(!showSettings)}
+              className="p-2.5 rounded-xl bg-white/5 border border-white/10 text-gray-400 hover:text-cyan-400 hover:border-cyan-500/30 transition active:scale-95"
+              title="GitHub Integration Settings"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor" className="w-5 h-5">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.43l-1.003.828c-.293.241-.438.613-.43.992a7.723 7.723 0 010 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.43l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.991l-1.004-.827a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.28z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+            </button>
+
             <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-xs font-mono">
               <span className={`h-2.5 w-2.5 rounded-full ${isWeb3Mode ? 'bg-indigo-400 animate-pulse' : 'bg-amber-400'}`}></span>
               <span className="text-gray-300">{isWeb3Mode ? "Sepolia Testnet" : "Local Sandbox Mode"}</span>
@@ -408,6 +559,75 @@ function App() {
       {/* Main Container */}
       <main className="max-w-7xl mx-auto px-6 mt-8">
         
+        {/* Collapsible GitHub Settings Modal/Card */}
+        {showSettings && (
+          <section className="p-6 rounded-2xl bg-[#0F1424] border border-cyan-500/30 glow-cyan mb-8 text-left transition-all duration-300">
+            <div className="flex justify-between items-center mb-4 pb-2 border-b border-white/10">
+              <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                <span>⚙️ GitHub CI/CD Actions Integration</span>
+              </h3>
+              <button onClick={() => setShowSettings(false)} className="text-gray-400 hover:text-white text-xs">✕ Close</button>
+            </div>
+            
+            <form onSubmit={saveGithubSettings} className="space-y-4">
+              <p className="text-xs text-gray-400 leading-relaxed">
+                Connect the frontend to your online GitHub repository. Entering a GitHub Personal Access Token (PAT) allows this page to trigger your online testbed sandboxes and watch the run in the terminal.
+                <br/>
+                <span className="text-amber-400 font-bold">Note:</span> Your token is saved securely in your browser's local storage and is only ever sent directly to `api.github.com`.
+              </p>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">GitHub Owner (Username)</label>
+                  <input 
+                    type="text" required
+                    value={githubOwner} onChange={(e) => setGithubOwner(e.target.value)}
+                    placeholder="e.g. Mukul312004"
+                    className="w-full bg-slate-950 border border-white/10 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 rounded-xl px-4 py-2 text-white outline-none text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">GitHub Repository Name</label>
+                  <input 
+                    type="text" required
+                    value={githubRepoName} onChange={(e) => setGithubRepoName(e.target.value)}
+                    placeholder="e.g. defi-bounty-escrow"
+                    className="w-full bg-slate-950 border border-white/10 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 rounded-xl px-4 py-2 text-white outline-none text-sm"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">GitHub Personal Access Token (PAT)</label>
+                <input 
+                  type="password"
+                  value={githubToken} onChange={(e) => setGithubToken(e.target.value)}
+                  placeholder="ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                  className="w-full bg-slate-950 border border-white/10 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 rounded-xl px-4 py-3 text-white placeholder-gray-700 outline-none text-sm font-mono"
+                />
+                <span className="block text-[10px] text-gray-500 mt-1">Requires a fine-grained token with `Actions: Read & Write` permission. Leave blank to run in mock simulation mode.</span>
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button type="submit" className="px-5 py-2.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl text-xs font-bold transition">
+                  Save Configurations
+                </button>
+                <button 
+                  type="button" 
+                  onClick={() => {
+                    setGithubToken('');
+                    localStorage.removeItem('gh_token');
+                    showToast("GitHub Token cleared. Running in simulation mode.", "info");
+                  }}
+                  className="px-5 py-2.5 bg-red-950/40 border border-red-500/20 text-red-400 hover:bg-red-900/40 rounded-xl text-xs font-bold transition"
+                >
+                  Clear Token
+                </button>
+              </div>
+            </form>
+          </section>
+        )}
+
         {/* Hero Banner with system description */}
         <section className="p-8 rounded-3xl bg-gradient-to-r from-slate-900/90 via-[#0B0F19]/90 to-slate-900/90 border border-white/10 shadow-2xl relative overflow-hidden mb-8">
           <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(139,92,246,0.1),transparent_50%)] pointer-events-none"></div>
@@ -432,7 +652,7 @@ function App() {
             <div className="flex flex-col gap-3 p-5 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-sm self-start lg:self-center font-mono text-xs w-full lg:w-80">
               <div className="flex justify-between items-center text-gray-500 font-bold border-b border-white/10 pb-2">
                 <span>ESCROW DETAILS</span>
-                <span className="text-cyan-500">ONLINE</span>
+                <span className="text-cyan-500 font-bold">ONLINE</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-400">Address:</span>
@@ -497,7 +717,7 @@ function App() {
                 <span className="text-sm font-bold font-mono text-emerald-400 uppercase tracking-wider">ONLINE & LISTENING</span>
               </div>
             </div>
-            <span className="text-[9px] text-gray-500 mt-2 block font-mono">Workflow: github.com/defi-bounty-escrow/.github/workflows</span>
+            <span className="text-[9px] text-gray-500 mt-2 block font-mono">Workflow: github.com/Mukul312004/defi-bounty-escrow</span>
           </div>
         </section>
 
@@ -566,7 +786,7 @@ function App() {
                   <input 
                     type="text" 
                     value={bountyRepo} onChange={(e) => setBountyRepo(e.target.value)}
-                    placeholder="e.g., github.com/defi-escrow/vulnerable-app"
+                    placeholder="e.g., github.com/Mukul312004/defi-bounty-escrow"
                     className="w-full bg-slate-950 border border-white/10 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 rounded-xl px-4 py-3 text-white placeholder-gray-600 outline-none text-sm transition"
                   />
                 </div>
@@ -662,7 +882,10 @@ function App() {
 
               {/* Step 2.1: Target Selection */}
               <form onSubmit={handleFetchBounty} className="mb-4">
-                <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Query Escrow Bounty ID</label>
+                <div className="flex justify-between items-center mb-1.5">
+                  <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider">Query Escrow Bounty ID</label>
+                  <span className="text-[10px] text-gray-500 font-mono">Seeded: 1, 2, 3</span>
+                </div>
                 <div className="flex gap-2">
                   <input 
                     type="number" required
@@ -742,14 +965,14 @@ function App() {
                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                       </svg>
-                      Executing Testbed Sandboxes...
+                      {githubToken ? "Executing GitHub Actions Run..." : "Executing Simulation..."}
                     </>
                   ) : (
                     <>
                       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2.5" stroke="currentColor" className="w-4 h-4">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M15.59 14.37a6 6 0 01-5.84 7.38v-4.8m5.84-2.58a14.98 14.98 0 006.16-12.12A14.98 14.98 0 009.64 3.75 14.98 14.98 0 003.5 15.86c0 1 .13 1.96.38 2.89m12.11-4.38l-4.8-4.8m0 0a3.97 3.97 0 015.62-5.63m-5.62 5.63L3.5 15.86m0 0a3.97 3.97 0 005.63 5.62" />
                       </svg>
-                      Trigger Automated Verification
+                      {githubToken ? "Trigger GitHub CI/CD Payout" : "Trigger Mock CI/CD Payout"}
                     </>
                   )}
                 </button>
@@ -866,7 +1089,7 @@ function App() {
               <span className="h-3 w-3 rounded-full bg-yellow-500"></span>
               <span className="h-3 w-3 rounded-full bg-green-500"></span>
               <span className="text-xs font-mono font-bold text-gray-400 ml-3 flex items-center gap-2">
-                <svg className="w-3.5 h-3.5 text-cyan-500 animate-spin" fill="none" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <svg className={`w-3.5 h-3.5 text-cyan-500 ${pipelineStatus === 'running' ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                 </svg>
@@ -899,15 +1122,17 @@ function App() {
                       log.includes('[DOCKER]') ? 'text-amber-400' :
                       log.includes('[EXPLOIT]') ? 'text-cyan-300' :
                       log.includes('[DATABASE]') ? 'text-gray-400' :
-                      log.includes('[CI-ORACLE]') ? 'text-pink-400 font-bold' :
-                      log.includes('VERIFICATION MATCH') || log.includes('SUCCESS') || log.includes('TRANSACTION CONFIRMED') ? 'text-emerald-400 font-bold' :
+                      log.includes('[CI-ORACLE]') || log.includes('[CI]') ? 'text-pink-400 font-bold' :
+                      log.includes('VERIFICATION MATCH') || log.includes('SUCCESS') || log.includes('TRANSACTION CONFIRMED') || log.includes('Tracked GitHub') ? 'text-emerald-400 font-bold' :
                       'text-cyan-400'
                     }>
                       {log}
                     </span>
                   </div>
                 ))}
-                <div className="h-1.5 w-1.5 bg-cyan-400 inline-block animate-pulse ml-1"></div>
+                {pipelineStatus === 'running' && (
+                  <div className="h-1.5 w-1.5 bg-cyan-400 inline-block animate-pulse ml-1"></div>
+                )}
               </div>
             )}
           </div>
