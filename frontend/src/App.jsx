@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { BrowserProvider, Contract, parseEther, formatEther } from 'ethers';
 import { CONTRACT_ADDRESS, CONTRACT_ABI } from './constants';
+import { fetchBounties, createBountyAPI, createSubmission, pollSubmissionStatus } from './api';
 import './App.css';
 
 // Pre-seeded bounties for demo and placeholder status
@@ -71,12 +72,6 @@ function App() {
   const [terminalLogs, setTerminalLogs] = useState([]);
   const [toast, setToast] = useState({ show: false, message: '', type: 'info' });
 
-  // GitHub Settings states (saved in localStorage)
-  const [githubToken, setGithubToken] = useState(localStorage.getItem('gh_token') || '');
-  const [githubOwner, setGithubOwner] = useState(localStorage.getItem('gh_owner') || 'Mukul312004');
-  const [githubRepoName, setGithubRepoName] = useState(localStorage.getItem('gh_repo') || 'defi-bounty-escrow');
-  const [showSettings, setShowSettings] = useState(false);
-
   const pollIntervalRef = useRef(null);
 
   // Auto-fill researcher wallet address when wallet connects
@@ -93,15 +88,20 @@ function App() {
     };
   }, []);
 
-  // Save GitHub configs to localStorage
-  const saveGithubSettings = (e) => {
-    e.preventDefault();
-    localStorage.setItem('gh_token', githubToken);
-    localStorage.setItem('gh_owner', githubOwner);
-    localStorage.setItem('gh_repo', githubRepoName);
-    showToast("GitHub integration settings saved!", "success");
-    setShowSettings(false);
-  };
+  // Fetch bounties on mount
+  useEffect(() => {
+    fetchBounties()
+      .then(data => {
+        setBountiesList(data);
+        setBountyCount(data.length);
+        const active = data.filter(b => b.isActive);
+        const resolved = data.filter(b => !b.isActive);
+        setResolvedCount(resolved.length);
+        const totalLocked = active.reduce((sum, b) => sum + parseFloat(b.amount), 0);
+        setTvl(totalLocked.toFixed(2));
+      })
+      .catch(err => console.error('Failed to fetch bounties:', err));
+  }, []);
 
   // Toast notification helper
   const showToast = (message, type = 'info') => {
@@ -171,20 +171,20 @@ function App() {
         // Refresh local stats
         const counter = await contract.bountyCounter();
         const newId = Number(counter);
-        setBountyCount(newId);
-
-        const newBounty = {
-          id: newId,
-          creator: account,
-          amount: bountyAmount,
-          isActive: true,
-          title: bountyTitle,
-          category: bountyCategory,
-          repo: bountyRepo || `github.com/${githubOwner}/${githubRepoName}`,
-          description: bountyDesc || "Audit project sandbox and submit proof of exploit."
-        };
         
-        setBountiesList(prev => [newBounty, ...prev]);
+        const savedBounty = await createBountyAPI({
+          title: bountyTitle,
+          description: bountyDesc || 'Audit project sandbox and submit proof of exploit.',
+          category: bountyCategory,
+          repo: bountyRepo || 'github.com/Mukul312004/defi-bounty-escrow',
+          amount: bountyAmount,
+          creator: account,
+          txHash: tx.hash,
+          onChainId: newId
+        });
+
+        setBountyCount(newId);
+        setBountiesList(prev => [savedBounty, ...prev]);
         setTvl(prev => (parseFloat(prev) + parseFloat(bountyAmount)).toFixed(2));
 
         // Reset inputs
@@ -198,22 +198,21 @@ function App() {
     } else {
       // Sandbox Mode simulation
       const newId = bountiesList.length + 1;
-      const newBounty = {
-        id: newId,
-        creator: account || "0xSandboxCreatorAddress",
-        amount: bountyAmount,
-        isActive: true,
-        title: bountyTitle,
-        category: bountyCategory,
-        repo: bountyRepo || `github.com/${githubOwner}/${githubRepoName}`,
-        description: bountyDesc || "Sandbox bounty. Submit docker exploit to test logic."
-      };
       
-      setBountiesList(prev => [newBounty, ...prev]);
+      const savedBounty = await createBountyAPI({
+        title: bountyTitle,
+        description: bountyDesc || "Sandbox bounty. Submit docker exploit to test logic.",
+        category: bountyCategory,
+        repo: bountyRepo || 'github.com/Mukul312004/defi-bounty-escrow',
+        amount: bountyAmount,
+        creator: account || "0xSandboxCreatorAddress"
+      });
+      
+      setBountiesList(prev => [savedBounty, ...prev]);
       setTvl(prev => (parseFloat(prev) + parseFloat(bountyAmount)).toFixed(2));
       setBountyCount(prev => prev + 1);
       
-      showToast(`Bounty #${newId} created in local Sandbox!`, "success");
+      showToast(`Bounty created in local Sandbox!`, "success");
       
       // Reset inputs
       setBountyAmount('');
@@ -227,21 +226,21 @@ function App() {
     if (!searchBountyId) return;
 
     const idNum = parseInt(searchBountyId);
-    const found = bountiesList.find(b => b.id === idNum);
+    const found = bountiesList.find(b => b._id === searchBountyId || b.id === idNum || b.onChainId === idNum);
 
     if (found) {
       setSelectedBounty(found);
-      showToast(`Fetched details for Bounty #${idNum}`, "success");
+      showToast(`Fetched details for Bounty #${found._id || found.id}`, "success");
     } else {
       setSelectedBounty(null);
-      showToast(`Bounty #${idNum} not found in database.`, "error");
+      showToast(`Bounty not found in database.`, "error");
     }
   };
 
   const selectBountyCard = (bounty) => {
     setSelectedBounty(bounty);
-    setSearchBountyId(bounty.id.toString());
-    showToast(`Selected Bounty #${bounty.id}`, "info");
+    setSearchBountyId((bounty._id || bounty.id).toString());
+    showToast(`Selected Bounty #${bounty._id || bounty.id}`, "info");
   };
 
   // Helper to add lines to terminal logs
@@ -315,126 +314,64 @@ function App() {
     showToast(`Bounty #${selectedBounty.id} resolved and paid out!`, "success");
   };
 
-  // Real GitHub API Dispatch & Polling
   const triggerGitHubAction = async () => {
     setPipelineStatus('running');
     setCurrentStep(1);
     setTerminalLogs([]);
-    appendLog(`[SYSTEM] Contacting GitHub API to trigger workflow 'bounty-ci.yml'...`);
+    appendLog('[SYSTEM] Sending exploit submission to Aegis backend...');
 
     try {
-      // Trigger the workflow_dispatch event
-      const dispatchUrl = `https://api.github.com/repos/${githubOwner}/${githubRepoName}/actions/workflows/bounty-ci.yml/dispatches`;
-      const dispatchResponse = await fetch(dispatchUrl, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${githubToken}`,
-          'Accept': 'application/vnd.github+json',
-          'X-GitHub-Api-Version': '2022-11-28',
-        },
-        body: JSON.stringify({
-          ref: 'main',
-          inputs: {
-            bounty_id: searchBountyId,
-            researcher_address: researcherPayoutAddress
-          }
-        })
+      const submission = await createSubmission({
+        bountyId: selectedBounty._id,
+        researcher: researcherPayoutAddress,
+        poeImage: poeImage
       });
 
-      if (!dispatchResponse.ok) {
-        const errData = await dispatchResponse.json().catch(() => ({}));
-        throw new Error(errData.message || `GitHub returned HTTP ${dispatchResponse.status}`);
-      }
+      appendLog(`[SYSTEM] Submission created! ID: ${submission._id}`);
+      appendLog('[SYSTEM] GitHub Action triggered. Polling for status...');
+      setCurrentStep(2);
 
-      appendLog(`[SYSTEM] GitHub Action successfully triggered!`);
-      appendLog(`[SYSTEM] Polling GitHub for running workflow pipeline status...`);
-      
-      // Start polling for workflow runs
-      let pollCount = 0;
-      let targetRunId = null;
-
+      // Poll backend for status updates
       pollIntervalRef.current = setInterval(async () => {
-        pollCount++;
-        if (pollCount > 36) { // 3 minutes timeout (5s * 36)
-          clearInterval(pollIntervalRef.current);
-          setPipelineStatus('failed');
-          appendLog(`[SYSTEM] TIMEOUT: GitHub Action run took too long. Check GitHub UI.`);
-          showToast("GitHub Action polling timed out.", "error");
-          return;
-        }
-
         try {
-          const runsUrl = `https://api.github.com/repos/${githubOwner}/${githubRepoName}/actions/runs?event=workflow_dispatch&per_page=5`;
-          const runsRes = await fetch(runsUrl, {
-            headers: {
-              'Authorization': `Bearer ${githubToken}`,
-              'Accept': 'application/vnd.github+json',
-            }
-          });
+          const updated = await pollSubmissionStatus(submission._id);
+          appendLog(`[CI] Pipeline Status: ${updated.status.toUpperCase()}`);
 
-          if (!runsRes.ok) return;
-          const runsData = await runsRes.json();
-          
-          // Find the latest workflow run
-          const latestRun = runsData.workflow_runs?.[0];
-          if (!latestRun) return;
-
-          // If we haven't locked onto a run ID yet, check if the run is recent
-          if (!targetRunId) {
-            const runTime = new Date(latestRun.created_at).getTime();
-            const now = new Date().getTime();
-            if (now - runTime < 60000) { // triggered in the last 60 seconds
-              targetRunId = latestRun.id;
-              appendLog(`[CI] Tracked GitHub Actions Run ID: #${targetRunId}`);
-              appendLog(`[CI] View live status online: ${latestRun.html_url}`);
-            } else {
-              return; // wait for the next poll
-            }
+          if (updated.githubRunUrl && !terminalLogs.some(l => l.includes('View live'))) {
+            appendLog(`[CI] View live: ${updated.githubRunUrl}`);
           }
 
-          // Fetch state for our tracked run
-          if (latestRun.id === targetRunId) {
-            const status = latestRun.status; // queued, in_progress, completed
-            const conclusion = latestRun.conclusion; // success, failure, cancelled
-            
-            appendLog(`[CI] Pipeline Status Update: ${status.toUpperCase()} (Conclusion: ${conclusion || 'RUNNING'})`);
-
-            if (status === 'queued') {
-              setCurrentStep(1);
-            } else if (status === 'in_progress') {
-              // Simulate progress steps based on elapsed time or simple incremental updates
-              setCurrentStep(prev => prev < 4 ? prev + 1 : prev);
-            } else if (status === 'completed') {
-              clearInterval(pollIntervalRef.current);
-              
-              if (conclusion === 'success') {
-                setCurrentStep(5);
-                setPipelineStatus('success');
-                appendLog(`[CI-ORACLE] SUCCESS: Proof-of-Exploit validated and payout executed on-chain!`);
-                
-                // Update local list
-                setBountiesList(prev => prev.map(b => b.id === selectedBounty.id ? { ...b, isActive: false } : b));
-                setSelectedBounty(prev => ({ ...prev, isActive: false }));
-                setTvl(prev => Math.max(0, (parseFloat(prev) - parseFloat(selectedBounty.amount))).toFixed(2));
-                setResolvedCount(prev => prev + 1);
-
-                showToast(`Bounty #${selectedBounty.id} successfully resolved online!`, "success");
-              } else {
-                setPipelineStatus('failed');
-                appendLog(`[CI-ORACLE] FAILED: GitHub Pipeline failed. The exploit was rejected or a chain error occurred.`);
-                showToast("Verification failed. Check GitHub Logs.", "error");
-              }
-            }
+          if (updated.status === 'running') {
+            setCurrentStep(prev => prev < 4 ? prev + 1 : prev);
+          } else if (updated.status === 'success') {
+            clearInterval(pollIntervalRef.current);
+            setCurrentStep(5);
+            setPipelineStatus('success');
+            appendLog('[CI-ORACLE] SUCCESS: Exploit validated and payout executed!');
+            setBountiesList(prev => prev.map(b => b._id === selectedBounty._id ? { ...b, isActive: false } : b));
+            setSelectedBounty(prev => ({ ...prev, isActive: false }));
+            setTvl(prev => Math.max(0, parseFloat(prev) - parseFloat(selectedBounty.amount)).toFixed(2));
+            setResolvedCount(prev => prev + 1);
+            showToast(`Bounty resolved and paid out!`, 'success');
+          } else if (updated.status === 'failed') {
+            clearInterval(pollIntervalRef.current);
+            setPipelineStatus('failed');
+            appendLog('[CI-ORACLE] FAILED: Exploit rejected or chain error.');
+            showToast('Verification failed.', 'error');
           }
         } catch (pollErr) {
-          console.error("Error polling run:", pollErr);
+          console.error('Polling error:', pollErr);
         }
       }, 5000);
-
     } catch (err) {
-      appendLog(`[SYSTEM] ERROR: Failed to trigger workflow: ${err.message}`);
-      setPipelineStatus('failed');
-      showToast("Failed to dispatch GitHub Action.", "error");
+      if (err.message.includes('HTTP error') || err.message.includes('Failed to fetch')) {
+        showToast("Backend API error. Running in simulation mode.", "info");
+        runMockSimulation();
+      } else {
+        appendLog(`[SYSTEM] ERROR: ${err.message}`);
+        setPipelineStatus('failed');
+        showToast('Failed to submit exploit.', 'error');
+      }
     }
   };
 
@@ -456,13 +393,7 @@ function App() {
       return;
     }
 
-    // Choose mode based on whether a GitHub Token is configured
-    if (githubToken) {
-      triggerGitHubAction();
-    } else {
-      showToast("GitHub Token not found. Running in simulation mode.", "info");
-      runMockSimulation();
-    }
+    triggerGitHubAction();
   };
 
   return (
@@ -508,18 +439,6 @@ function App() {
           </div>
 
           <div className="flex items-center gap-4">
-            {/* Settings Toggle Gear */}
-            <button 
-              onClick={() => setShowSettings(!showSettings)}
-              className="p-2.5 rounded-xl bg-white/5 border border-white/10 text-gray-400 hover:text-cyan-400 hover:border-cyan-500/30 transition active:scale-95"
-              title="GitHub Integration Settings"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor" className="w-5 h-5">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.43l-1.003.828c-.293.241-.438.613-.43.992a7.723 7.723 0 010 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.43l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.991l-1.004-.827a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.28z" />
-                <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-              </svg>
-            </button>
-
             <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-xs font-mono">
               <span className={`h-2.5 w-2.5 rounded-full ${isWeb3Mode ? 'bg-indigo-400 animate-pulse' : 'bg-amber-400'}`}></span>
               <span className="text-gray-300">{isWeb3Mode ? "Sepolia Testnet" : "Local Sandbox Mode"}</span>
@@ -558,75 +477,6 @@ function App() {
 
       {/* Main Container */}
       <main className="max-w-7xl mx-auto px-6 mt-8">
-        
-        {/* Collapsible GitHub Settings Modal/Card */}
-        {showSettings && (
-          <section className="p-6 rounded-2xl bg-[#0F1424] border border-cyan-500/30 glow-cyan mb-8 text-left transition-all duration-300">
-            <div className="flex justify-between items-center mb-4 pb-2 border-b border-white/10">
-              <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                <span>⚙️ GitHub CI/CD Actions Integration</span>
-              </h3>
-              <button onClick={() => setShowSettings(false)} className="text-gray-400 hover:text-white text-xs">✕ Close</button>
-            </div>
-            
-            <form onSubmit={saveGithubSettings} className="space-y-4">
-              <p className="text-xs text-gray-400 leading-relaxed">
-                Connect the frontend to your online GitHub repository. Entering a GitHub Personal Access Token (PAT) allows this page to trigger your online testbed sandboxes and watch the run in the terminal.
-                <br/>
-                <span className="text-amber-400 font-bold">Note:</span> Your token is saved securely in your browser's local storage and is only ever sent directly to `api.github.com`.
-              </p>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">GitHub Owner (Username)</label>
-                  <input 
-                    type="text" required
-                    value={githubOwner} onChange={(e) => setGithubOwner(e.target.value)}
-                    placeholder="e.g. Mukul312004"
-                    className="w-full bg-slate-950 border border-white/10 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 rounded-xl px-4 py-2 text-white outline-none text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">GitHub Repository Name</label>
-                  <input 
-                    type="text" required
-                    value={githubRepoName} onChange={(e) => setGithubRepoName(e.target.value)}
-                    placeholder="e.g. defi-bounty-escrow"
-                    className="w-full bg-slate-950 border border-white/10 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 rounded-xl px-4 py-2 text-white outline-none text-sm"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">GitHub Personal Access Token (PAT)</label>
-                <input 
-                  type="password"
-                  value={githubToken} onChange={(e) => setGithubToken(e.target.value)}
-                  placeholder="ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-                  className="w-full bg-slate-950 border border-white/10 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 rounded-xl px-4 py-3 text-white placeholder-gray-700 outline-none text-sm font-mono"
-                />
-                <span className="block text-[10px] text-gray-500 mt-1">Requires a fine-grained token with `Actions: Read & Write` permission. Leave blank to run in mock simulation mode.</span>
-              </div>
-
-              <div className="flex gap-3 pt-2">
-                <button type="submit" className="px-5 py-2.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl text-xs font-bold transition">
-                  Save Configurations
-                </button>
-                <button 
-                  type="button" 
-                  onClick={() => {
-                    setGithubToken('');
-                    localStorage.removeItem('gh_token');
-                    showToast("GitHub Token cleared. Running in simulation mode.", "info");
-                  }}
-                  className="px-5 py-2.5 bg-red-950/40 border border-red-500/20 text-red-400 hover:bg-red-900/40 rounded-xl text-xs font-bold transition"
-                >
-                  Clear Token
-                </button>
-              </div>
-            </form>
-          </section>
-        )}
 
         {/* Hero Banner with system description */}
         <section className="p-8 rounded-3xl bg-gradient-to-r from-slate-900/90 via-[#0B0F19]/90 to-slate-900/90 border border-white/10 shadow-2xl relative overflow-hidden mb-8">
@@ -965,14 +815,14 @@ function App() {
                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                       </svg>
-                      {githubToken ? "Executing GitHub Actions Run..." : "Executing Simulation..."}
+                      Executing Pipeline...
                     </>
                   ) : (
                     <>
                       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2.5" stroke="currentColor" className="w-4 h-4">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M15.59 14.37a6 6 0 01-5.84 7.38v-4.8m5.84-2.58a14.98 14.98 0 006.16-12.12A14.98 14.98 0 009.64 3.75 14.98 14.98 0 003.5 15.86c0 1 .13 1.96.38 2.89m12.11-4.38l-4.8-4.8m0 0a3.97 3.97 0 015.62-5.63m-5.62 5.63L3.5 15.86m0 0a3.97 3.97 0 005.63 5.62" />
                       </svg>
-                      {githubToken ? "Trigger GitHub CI/CD Payout" : "Trigger Mock CI/CD Payout"}
+                      Trigger Automated Verification
                     </>
                   )}
                 </button>

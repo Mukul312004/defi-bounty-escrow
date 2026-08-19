@@ -1,5 +1,5 @@
 // Replace with your deployed Sepolia contract address
-export const CONTRACT_ADDRESS = "0xdc13178fbaA587Ff4B0379A02CdEf657D8EDAb83";
+export const CONTRACT_ADDRESS = "0xF1d74CC50C1Fd533438FFADa8981E221C17d2531";
 
 export const CONTRACT_ABI = [
     "function createBounty() external payable",
