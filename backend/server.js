@@ -1,7 +1,6 @@
 import express from 'express';
 import dotenv from 'dotenv';
 import cors from 'cors';
-import { connectDB } from './config/db.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import bountyRoutes from './routes/bountyRoutes.js';
 import submissionRoutes from './routes/submissionRoutes.js';
@@ -23,11 +22,6 @@ app.use('/api/submissions', submissionRoutes);
 app.use(errorHandler);
 
 // Start server
-const startServer = async () => {
-  await connectDB();
-  app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-  });
-};
-
-startServer();
+app.listen(PORT, () => {
+  console.log(`🚀 Aegis Escrow Backend running on http://localhost:${PORT} (In-Memory MVP Mode)`);
+});

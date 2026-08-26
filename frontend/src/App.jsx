@@ -4,39 +4,17 @@ import { CONTRACT_ADDRESS, CONTRACT_ABI } from './constants';
 import { fetchBounties, createBountyAPI, createSubmission, pollSubmissionStatus } from './api';
 import './App.css';
 
-// Pre-seeded bounties for demo and placeholder status
-const INITIAL_BOUNTIES = [
-  {
-    id: 1,
-    creator: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
-    amount: "0.25",
-    isActive: true,
-    title: "SQL Injection Flag Extraction",
-    category: "SQL Injection",
-    repo: "github.com/Mukul312004/defi-bounty-escrow",
-    description: "Extract the value stored in the secrets table via the /search endpoint."
-  },
-  {
-    id: 2,
-    creator: "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
-    amount: "1.50",
-    isActive: true,
-    title: "Reentrancy Vault Drain",
-    category: "Reentrancy",
-    repo: "github.com/defi-escrow/ether-vault",
-    description: "Drain locked funds in the Vault contract during deposit/withdraw callbacks."
-  },
-  {
-    id: 3,
-    creator: "0x90F79bf6EB2c4f870365E785982E1f101E93b906",
-    amount: "0.75",
-    isActive: false,
-    title: "Signature Malleability Bypass",
-    category: "Cryptography",
-    repo: "github.com/defi-escrow/ecdsa-auth",
-    description: "Bypass signature verification by submitting a malformed EC signature."
-  }
-];
+// Bounties are now loaded from MongoDB via the backend API
+const INITIAL_BOUNTIES = [];
+
+// Helper: get a short display ID for a bounty
+const getBountyDisplayId = (b) => b.onChainId ?? b._id?.slice(-6) ?? '??';
+
+// Helper: safely truncate an address for display
+const truncateAddress = (addr) => {
+  if (!addr || addr.length < 10) return addr || 'Unknown';
+  return `${addr.substring(0, 6)}...${addr.substring(addr.length - 4)}`;
+};
 
 function App() {
   const [account, setAccount] = useState(null);
@@ -46,9 +24,9 @@ function App() {
   const [isWeb3Mode, setIsWeb3Mode] = useState(false);
 
   // Blockchain metrics
-  const [tvl, setTvl] = useState("2.50");
-  const [bountyCount, setBountyCount] = useState(3);
-  const [resolvedCount, setResolvedCount] = useState(1);
+  const [tvl, setTvl] = useState("0.00");
+  const [bountyCount, setBountyCount] = useState(0);
+  const [resolvedCount, setResolvedCount] = useState(0);
 
   // User Bounties List (for Sandbox / Web3 hybrid rendering)
   const [bountiesList, setBountiesList] = useState(INITIAL_BOUNTIES);
@@ -197,22 +175,39 @@ function App() {
       }
     } else {
       // Sandbox Mode simulation
-      const newId = bountiesList.length + 1;
-      
-      const savedBounty = await createBountyAPI({
-        title: bountyTitle,
-        description: bountyDesc || "Sandbox bounty. Submit docker exploit to test logic.",
-        category: bountyCategory,
-        repo: bountyRepo || 'github.com/Mukul312004/defi-bounty-escrow',
-        amount: bountyAmount,
-        creator: account || "0xSandboxCreatorAddress"
-      });
-      
-      setBountiesList(prev => [savedBounty, ...prev]);
-      setTvl(prev => (parseFloat(prev) + parseFloat(bountyAmount)).toFixed(2));
-      setBountyCount(prev => prev + 1);
-      
-      showToast(`Bounty created in local Sandbox!`, "success");
+      try {
+        const savedBounty = await createBountyAPI({
+          title: bountyTitle,
+          description: bountyDesc || "Sandbox bounty. Submit docker exploit to test logic.",
+          category: bountyCategory,
+          repo: bountyRepo || 'github.com/Mukul312004/defi-bounty-escrow',
+          amount: bountyAmount,
+          creator: account || "0xSandboxCreatorAddress"
+        });
+        
+        setBountiesList(prev => [savedBounty, ...prev]);
+        setTvl(prev => (parseFloat(prev) + parseFloat(bountyAmount)).toFixed(2));
+        setBountyCount(prev => prev + 1);
+        
+        showToast(`Bounty created successfully!`, "success");
+      } catch (err) {
+        // Backend offline — add to local state only
+        console.warn('Backend unavailable, saving locally:', err);
+        const localBounty = {
+          _id: `local-${Date.now()}`,
+          title: bountyTitle,
+          description: bountyDesc || "Sandbox bounty. Submit docker exploit to test logic.",
+          category: bountyCategory,
+          repo: bountyRepo || 'github.com/Mukul312004/defi-bounty-escrow',
+          amount: bountyAmount,
+          creator: account || "0xSandboxCreatorAddress",
+          isActive: true
+        };
+        setBountiesList(prev => [localBounty, ...prev]);
+        setTvl(prev => (parseFloat(prev) + parseFloat(bountyAmount)).toFixed(2));
+        setBountyCount(prev => prev + 1);
+        showToast(`Bounty created locally (backend offline).`, "warning");
+      }
       
       // Reset inputs
       setBountyAmount('');
@@ -225,12 +220,17 @@ function App() {
     e.preventDefault();
     if (!searchBountyId) return;
 
-    const idNum = parseInt(searchBountyId);
-    const found = bountiesList.find(b => b._id === searchBountyId || b.id === idNum || b.onChainId === idNum);
+    const query = searchBountyId.trim();
+    const idNum = parseInt(query);
+    const found = bountiesList.find(b => 
+      b._id === query || 
+      b.onChainId === idNum ||
+      (b.title && b.title.toLowerCase().includes(query.toLowerCase()))
+    );
 
     if (found) {
       setSelectedBounty(found);
-      showToast(`Fetched details for Bounty #${found._id || found.id}`, "success");
+      showToast(`Fetched details for Bounty #${getBountyDisplayId(found)}`, "success");
     } else {
       setSelectedBounty(null);
       showToast(`Bounty not found in database.`, "error");
@@ -239,8 +239,8 @@ function App() {
 
   const selectBountyCard = (bounty) => {
     setSelectedBounty(bounty);
-    setSearchBountyId((bounty._id || bounty.id).toString());
-    showToast(`Selected Bounty #${bounty._id || bounty.id}`, "info");
+    setSearchBountyId((bounty._id || bounty.id || '').toString());
+    showToast(`Selected Bounty #${getBountyDisplayId(bounty)}`, "info");
   };
 
   // Helper to add lines to terminal logs
@@ -260,7 +260,7 @@ function App() {
 
   const runMockSimulation = async () => {
     setCurrentStep(1);
-    await writeLogWithDelay(`[SYSTEM] Starting Local CI Simulation for Bounty #${selectedBounty.id}...`, 200);
+    await writeLogWithDelay(`[SYSTEM] Starting Local CI Simulation for Bounty #${getBountyDisplayId(selectedBounty)}...`, 200);
     await writeLogWithDelay(`[SYSTEM] Pulling target base environment (Ubuntu 22.04 LTS)...`, 300);
     await writeLogWithDelay(`[DOCKER] Creating isolated bridge network 'bounty-net'... Done.`, 400);
     
@@ -294,24 +294,25 @@ function App() {
 
     setCurrentStep(5);
     await writeLogWithDelay(`[ORACLE-BLOCKCHAIN] Connecting to blockchain provider...`, 300);
-    await writeLogWithDelay(`[ORACLE-BLOCKCHAIN] resolveBounty(${selectedBounty.id}, ${researcherPayoutAddress})`, 400);
+    await writeLogWithDelay(`[ORACLE-BLOCKCHAIN] resolveBounty(${getBountyDisplayId(selectedBounty)}, ${researcherPayoutAddress})`, 400);
     
     if (isWeb3Mode && contract) {
       const simulatedHash = "0x" + Array.from({length: 64}, () => Math.floor(Math.random()*16).toString(16)).join('');
       await writeLogWithDelay(`[ORACLE-BLOCKCHAIN] Transaction Broadcasted! Hash: ${simulatedHash}`, 300);
-      await writeLogWithDelay(`[SYSTEM] Bounty #${selectedBounty.id} successfully resolved on-chain!`, 200);
+      await writeLogWithDelay(`[SYSTEM] Bounty #${getBountyDisplayId(selectedBounty)} successfully resolved on-chain!`, 200);
     } else {
       await writeLogWithDelay(`[ORACLE-SANDBOX] Escrow balance release executed locally.`, 300);
-      await writeLogWithDelay(`[SYSTEM] Bounty #${selectedBounty.id} successfully resolved in sandbox!`, 200);
+      await writeLogWithDelay(`[SYSTEM] Bounty #${getBountyDisplayId(selectedBounty)} successfully resolved in sandbox!`, 200);
     }
 
     // Update States
-    setBountiesList(prev => prev.map(b => b.id === selectedBounty.id ? { ...b, isActive: false } : b));
+    const bountyKey = selectedBounty._id || selectedBounty.id;
+    setBountiesList(prev => prev.map(b => (b._id || b.id) === bountyKey ? { ...b, isActive: false } : b));
     setSelectedBounty(prev => ({ ...prev, isActive: false }));
     setTvl(prev => Math.max(0, (parseFloat(prev) - parseFloat(selectedBounty.amount))).toFixed(2));
     setResolvedCount(prev => prev + 1);
     setPipelineStatus('success');
-    showToast(`Bounty #${selectedBounty.id} resolved and paid out!`, "success");
+    showToast(`Bounty #${getBountyDisplayId(selectedBounty)} resolved and paid out!`, "success");
   };
 
   const triggerGitHubAction = async () => {
@@ -678,12 +679,17 @@ function App() {
               </div>
 
               <div className="space-y-3 max-h-[350px] overflow-y-auto pr-1 terminal-scrollbar">
+                {bountiesList.length === 0 && (
+                  <div className="text-center text-gray-500 text-xs py-8 font-mono">
+                    No bounties loaded. Create one above or check backend connection.
+                  </div>
+                )}
                 {bountiesList.map((b) => (
                   <div 
-                    key={b.id} 
+                    key={b._id || b.id} 
                     onClick={() => selectBountyCard(b)}
                     className={`p-4 rounded-xl border transition cursor-pointer text-left ${
-                      selectedBounty?.id === b.id 
+                      (selectedBounty?._id || selectedBounty?.id) === (b._id || b.id) 
                         ? 'bg-cyan-950/30 border-cyan-500/50 glow-cyan' 
                         : 'bg-slate-950/50 border-white/5 hover:border-white/10 hover:bg-slate-900/50'
                     }`}
@@ -691,7 +697,7 @@ function App() {
                     <div className="flex justify-between items-start">
                       <div>
                         <div className="flex items-center gap-2">
-                          <span className="text-xs font-mono font-bold text-cyan-400">#{b.id}</span>
+                          <span className="text-xs font-mono font-bold text-cyan-400">#{getBountyDisplayId(b)}</span>
                           <span className="text-sm font-bold text-white tracking-tight">{b.title}</span>
                         </div>
                         <span className="text-[10px] font-mono text-gray-500 block mt-1">{b.repo}</span>
@@ -707,7 +713,7 @@ function App() {
                     </div>
                     <div className="flex justify-between items-center mt-3 pt-3 border-t border-white/5 text-[10px] text-gray-400">
                       <span>Category: <strong className="text-indigo-400">{b.category}</strong></span>
-                      <span className="font-mono text-gray-500">Creator: {b.creator.substring(0, 6)}...{b.creator.substring(38)}</span>
+                      <span className="font-mono text-gray-500">Creator: {truncateAddress(b.creator)}</span>
                     </div>
                   </div>
                 ))}
@@ -733,14 +739,14 @@ function App() {
               {/* Step 2.1: Target Selection */}
               <form onSubmit={handleFetchBounty} className="mb-4">
                 <div className="flex justify-between items-center mb-1.5">
-                  <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider">Query Escrow Bounty ID</label>
-                  <span className="text-[10px] text-gray-500 font-mono">Seeded: 1, 2, 3</span>
+                  <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider">Query Escrow Bounty</label>
+                  <span className="text-[10px] text-gray-500 font-mono">Search by title or on-chain ID</span>
                 </div>
                 <div className="flex gap-2">
                   <input 
-                    type="number" required
+                    type="text" required
                     value={searchBountyId} onChange={(e) => setSearchBountyId(e.target.value)}
-                    placeholder="Bounty ID"
+                    placeholder="Bounty title, on-chain ID, or DB ID"
                     className="flex-1 bg-slate-950 border border-white/10 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 rounded-xl px-4 py-3 text-white placeholder-gray-600 outline-none text-sm transition"
                   />
                   <button 
@@ -757,7 +763,7 @@ function App() {
                 <div className="p-4 rounded-xl bg-slate-950 border border-cyan-500/20 mb-5 text-left">
                   <div className="flex justify-between items-center mb-2">
                     <span className="text-[10px] font-mono text-cyan-400 bg-cyan-950/60 px-2 py-0.5 rounded border border-cyan-500/20">
-                      Bounty #{selectedBounty.id} Details
+                      Bounty #{getBountyDisplayId(selectedBounty)} Details
                     </span>
                     <span className={`text-xs font-bold font-mono ${selectedBounty.isActive ? 'text-emerald-400' : 'text-rose-400'}`}>
                       {selectedBounty.isActive ? "ACTIVE ESCROW" : "RESOLVED & CLAIMS CLOSED"}
