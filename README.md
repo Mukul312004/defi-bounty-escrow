@@ -1,4 +1,4 @@
-# 🛡️ Aegis Escrow — Automated DeFi Bug Bounty Protocol
+# Automated DeFi Bug Bounty Protocol/System
 
 [![Solidity](https://img.shields.io/badge/Solidity-%23363636.svg?style=flat&logo=solidity&logoColor=white)](https://soliditylang.org/)
 [![React](https://img.shields.io/badge/React-19-20232A?style=flat&logo=react&logoColor=61DAFB)](https://react.dev/)
@@ -11,9 +11,9 @@
 
 ---
 
-## ⚡ The Problem & The Solution
+## The Problem & The Solution
 
-| Traditional Bug Bounties ❌ | Aegis Automated Escrow ✅ |
+| Traditional Bug Bounties  | Aegis Automated Escrow  |
 |---|---|
 | Protocol owners can refuse to pay or ghost researchers after receiving bug details. | Funds are locked in smart contracts upfront before audits begin. |
 | Subjective human triage delays payouts by weeks or months. | Automated CI/CD testbed validates exploits in seconds. |
@@ -22,7 +22,7 @@
 
 ---
 
-## 🏗️ Architecture & Workflow
+## Architecture & Workflow
 
 ```
  ┌──────────────────┐
@@ -55,7 +55,7 @@
 
 ---
 
-## 📁 Repository Structure
+## Repository Structure
 
 ```tree
 defi-bounty-escrow/
@@ -89,7 +89,7 @@ defi-bounty-escrow/
 
 ---
 
-## 🚀 Live Deployments
+## Live Deployments
 
 - **Frontend App**: Hosted on **Vercel**
 - **Backend API**: Hosted on **Render**
@@ -97,7 +97,7 @@ defi-bounty-escrow/
 
 ---
 
-## 💻 Local Quickstart
+## Local Quickstart
 
 ### Prerequisites
 - **Node.js**: v18+ ([Download](https://nodejs.org/))
@@ -129,7 +129,7 @@ Open **`http://localhost:5173`** in your browser.
 
 ---
 
-## 🎮 How to Test the App
+## How to Test the App
 
 ### Mode 1: Local Sandbox Mode (Zero Wallet / Gas Required)
 1. Open the frontend at `http://localhost:5173`.
@@ -148,7 +148,7 @@ Open **`http://localhost:5173`** in your browser.
 
 ---
 
-## 📜 Smart Contract Reference
+## Smart Contract Reference
 
 ### `BountyEscrow.sol`
 Deployed on **Ethereum Sepolia**: `0xF1d74CC50C1Fd533438FFADa8981E221C17d2531`
@@ -162,7 +162,7 @@ function bountyCounter() view returns (uint256);
 
 ---
 
-## 🛡️ Security Considerations
+## Security Considerations
 
 - **Reentrancy Protection**: State updates in `resolveBounty` occur before the external ETH transfer (`Checks-Effects-Interactions` pattern).
 - **Oracle Isolation**: Only the designated Oracle address (authenticated GitHub Actions runner) has permissions to invoke `resolveBounty`.
