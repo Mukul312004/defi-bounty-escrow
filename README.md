@@ -26,23 +26,23 @@
 
 ```
  ┌──────────────────┐
- │  Protocol Owner  │── 1. Create Bounty (Lock ETH in Contract) ──┐
+ │  Protocol Owner  │── 1. Create Bounty (Lock ETH in Contract)──┐
  └──────────────────┘                                            │
                                                                  ▼
  ┌──────────────────┐                                   ┌─────────────────┐
- │ Security Hacker  │── 2. Submit PoE Docker Image ───►│  Aegis Escrow   │
+ │ Security Hacker  │──  2. Submit PoE Docker Image ───►│  Aegis Escrow   │
  └──────────────────┘                                   │ Smart Contract  │
                                                         └────────┬────────┘
                                                                  ▲
  ┌────────────────────────────────────────────────────────┐      │ 5. Trigger
- │             GitHub Actions / CI/CD Oracle               │      │    Payout
+ │             GitHub Actions / CI/CD Oracle              │      │    Payout
  │                                                        │      │
- │  ┌───────────────────────┐   ┌──────────────────────┐ │      │
- │  │ Target Vulnerable App │◄──│ PoE Exploit Payload  │ │──────┘
- │  │   (Docker Sandbox)    │   │  (Docker Container)  │ │
- │  └───────────────────────┘   └──────────────────────┘ │
- │                             │                         │
- │                 4. Secret Flag Validated?             │
+ │  ┌───────────────────────┐   ┌──────────────────────┐  │      │
+ │  │ Target Vulnerable App │◄──│ PoE Exploit Payload  │  │──────┘
+ │  │   (Docker Sandbox)    │   │  (Docker Container)  │  │
+ │  └───────────────────────┘   └──────────────────────┘  │
+ │                            │                           │
+ │                 4. Secret Flag Validated?              │
  └────────────────────────────────────────────────────────┘
 ```
 

@@ -4,11 +4,11 @@ import { CONTRACT_ADDRESS, CONTRACT_ABI } from './constants';
 import { fetchBounties, createBountyAPI, createSubmission, pollSubmissionStatus } from './api';
 import './App.css';
 
-// Bounties are now loaded from MongoDB via the backend API
+// Initial empty fallback bounties
 const INITIAL_BOUNTIES = [];
 
 // Helper: get a short display ID for a bounty
-const getBountyDisplayId = (b) => b.onChainId ?? b._id?.slice(-6) ?? '??';
+const getBountyDisplayId = (b) => b?.onChainId ?? b?._id?.slice(-6) ?? '??';
 
 // Helper: safely truncate an address for display
 const truncateAddress = (addr) => {
@@ -17,6 +17,16 @@ const truncateAddress = (addr) => {
 };
 
 function App() {
+  // Dark mode state
+  const [isDarkMode, setIsDarkMode] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('theme');
+      if (saved) return saved === 'dark';
+      return window.matchMedia('(prefers-color-scheme: dark)').matches;
+    }
+    return false;
+  });
+
   const [account, setAccount] = useState(null);
   const [balance, setBalance] = useState("0");
   const [provider, setProvider] = useState(null);
@@ -30,6 +40,7 @@ function App() {
 
   // User Bounties List (for Sandbox / Web3 hybrid rendering)
   const [bountiesList, setBountiesList] = useState(INITIAL_BOUNTIES);
+  const [categoryFilter, setCategoryFilter] = useState('All');
 
   // Form states
   const [bountyAmount, setBountyAmount] = useState('');
@@ -51,6 +62,19 @@ function App() {
   const [toast, setToast] = useState({ show: false, message: '', type: 'info' });
 
   const pollIntervalRef = useRef(null);
+  const terminalEndRef = useRef(null);
+
+  // Sync dark mode class to <html>
+  useEffect(() => {
+    const root = document.documentElement;
+    if (isDarkMode) {
+      root.classList.add('dark');
+      localStorage.setItem('theme', 'dark');
+    } else {
+      root.classList.remove('dark');
+      localStorage.setItem('theme', 'light');
+    }
+  }, [isDarkMode]);
 
   // Auto-fill researcher wallet address when wallet connects
   useEffect(() => {
@@ -66,6 +90,13 @@ function App() {
     };
   }, []);
 
+  // Auto scroll terminal logs
+  useEffect(() => {
+    if (terminalEndRef.current) {
+      terminalEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [terminalLogs]);
+
   // Fetch bounties on mount
   useEffect(() => {
     fetchBounties()
@@ -75,7 +106,7 @@ function App() {
         const active = data.filter(b => b.isActive);
         const resolved = data.filter(b => !b.isActive);
         setResolvedCount(resolved.length);
-        const totalLocked = active.reduce((sum, b) => sum + parseFloat(b.amount), 0);
+        const totalLocked = active.reduce((sum, b) => sum + parseFloat(b.amount || 0), 0);
         setTvl(totalLocked.toFixed(2));
       })
       .catch(err => console.error('Failed to fetch bounties:', err));
@@ -103,18 +134,18 @@ function App() {
         setProvider(_provider);
         setContract(_contract);
         setIsWeb3Mode(true);
-        showToast("Web3 Wallet Connected successfully!", "success");
+        showToast("Web3 Wallet connected successfully.", "success");
 
         // Sync statistics if contract is available
         try {
           const counter = await _contract.bountyCounter();
           setBountyCount(Number(counter));
         } catch (e) {
-          console.warn("Could not read contract bounty counter. Using mock stats.", e);
+          console.warn("Could not read contract bounty counter. Using API stats.", e);
         }
       } catch (error) {
         console.error("Wallet connection failed", error);
-        showToast("Failed to connect wallet", "error");
+        showToast("Failed to connect wallet.", "error");
       }
     } else {
       showToast("MetaMask not detected. Running in Sandbox Mode.", "warning");
@@ -127,24 +158,24 @@ function App() {
     setProvider(null);
     setContract(null);
     setIsWeb3Mode(false);
-    showToast("Disconnected Web3 wallet. Sandbox Mode enabled.", "info");
+    showToast("Wallet disconnected. Sandbox Mode active.", "info");
   };
 
   const handleCreateBounty = async (e) => {
     e.preventDefault();
     if (!bountyAmount || !bountyTitle) {
-      showToast("Please fill in reward amount and bounty title", "warning");
+      showToast("Please provide a bounty reward amount and title.", "warning");
       return;
     }
 
     if (isWeb3Mode && contract) {
       try {
-        showToast("Initiating contract transaction... Please approve in MetaMask.", "info");
+        showToast("Initiating contract transaction... Please confirm in your wallet.", "info");
         const tx = await contract.createBounty({ value: parseEther(bountyAmount) });
-        showToast("Transaction submitted! Waiting for block confirmation...", "info");
+        showToast("Transaction submitted. Awaiting block confirmation...", "info");
         await tx.wait();
         
-        showToast("Bounty locked in contract successfully!", "success");
+        showToast("Bounty locked in smart contract successfully.", "success");
         
         // Refresh local stats
         const counter = await contract.bountyCounter();
@@ -189,7 +220,7 @@ function App() {
         setTvl(prev => (parseFloat(prev) + parseFloat(bountyAmount)).toFixed(2));
         setBountyCount(prev => prev + 1);
         
-        showToast(`Bounty created successfully!`, "success");
+        showToast(`Bounty created in sandbox database.`, "success");
       } catch (err) {
         // Backend offline — add to local state only
         console.warn('Backend unavailable, saving locally:', err);
@@ -230,7 +261,7 @@ function App() {
 
     if (found) {
       setSelectedBounty(found);
-      showToast(`Fetched details for Bounty #${getBountyDisplayId(found)}`, "success");
+      showToast(`Selected Bounty #${getBountyDisplayId(found)}`, "success");
     } else {
       setSelectedBounty(null);
       showToast(`Bounty not found in database.`, "error");
@@ -309,7 +340,7 @@ function App() {
     const bountyKey = selectedBounty._id || selectedBounty.id;
     setBountiesList(prev => prev.map(b => (b._id || b.id) === bountyKey ? { ...b, isActive: false } : b));
     setSelectedBounty(prev => ({ ...prev, isActive: false }));
-    setTvl(prev => Math.max(0, (parseFloat(prev) - parseFloat(selectedBounty.amount))).toFixed(2));
+    setTvl(prev => Math.max(0, (parseFloat(prev) - parseFloat(selectedBounty.amount || 0))).toFixed(2));
     setResolvedCount(prev => prev + 1);
     setPipelineStatus('success');
     showToast(`Bounty #${getBountyDisplayId(selectedBounty)} resolved and paid out!`, "success");
@@ -351,7 +382,7 @@ function App() {
             appendLog('[CI-ORACLE] SUCCESS: Exploit validated and payout executed!');
             setBountiesList(prev => prev.map(b => b._id === selectedBounty._id ? { ...b, isActive: false } : b));
             setSelectedBounty(prev => ({ ...prev, isActive: false }));
-            setTvl(prev => Math.max(0, parseFloat(prev) - parseFloat(selectedBounty.amount)).toFixed(2));
+            setTvl(prev => Math.max(0, parseFloat(prev) - parseFloat(selectedBounty.amount || 0)).toFixed(2));
             setResolvedCount(prev => prev + 1);
             showToast(`Bounty resolved and paid out!`, 'success');
           } else if (updated.status === 'failed') {
@@ -365,8 +396,8 @@ function App() {
         }
       }, 5000);
     } catch (err) {
-      if (err.message.includes('HTTP error') || err.message.includes('Failed to fetch')) {
-        showToast("Backend API error. Running in simulation mode.", "info");
+      if (err.message && (err.message.includes('HTTP error') || err.message.includes('Failed to fetch'))) {
+        showToast("Backend API offline. Running in sandbox simulation mode.", "info");
         runMockSimulation();
       } else {
         appendLog(`[SYSTEM] ERROR: ${err.message}`);
@@ -378,82 +409,114 @@ function App() {
 
   const runVerificationPipeline = () => {
     if (!selectedBounty) {
-      showToast("Please query or select a target bounty first", "warning");
+      showToast("Please query or select a target bounty first.", "warning");
       return;
     }
     if (!selectedBounty.isActive) {
-      showToast("Selected bounty has already been resolved", "error");
+      showToast("Selected bounty has already been resolved.", "error");
       return;
     }
     if (!poeImage) {
-      showToast("Please provide a proof-of-exploit Docker image tag", "warning");
+      showToast("Please provide a proof-of-exploit Docker image tag.", "warning");
       return;
     }
     if (!researcherPayoutAddress) {
-      showToast("Please enter a valid researcher payout wallet", "warning");
+      showToast("Please enter a valid researcher payout wallet.", "warning");
       return;
     }
 
     triggerGitHubAction();
   };
 
-  return (
-    <div className="min-h-screen pb-16 bg-grid-pattern relative">
-      
-      {/* Dynamic Background Glows */}
-      <div className="absolute top-[-10%] left-[-10%] w-[500px] h-[500px] rounded-full bg-cyan-500/10 blur-[120px] pointer-events-none animate-pulse-slow"></div>
-      <div className="absolute bottom-[-10%] right-[-10%] w-[500px] h-[500px] rounded-full bg-purple-500/10 blur-[120px] pointer-events-none animate-pulse-slow"></div>
+  // Filter bounties by category
+  const filteredBounties = categoryFilter === 'All' 
+    ? bountiesList 
+    : bountiesList.filter(b => b.category === categoryFilter);
 
-      {/* Global Toast Notification */}
+  const categories = ['All', 'SQL Injection', 'Reentrancy', 'Cryptography', 'Arithmetic Error'];
+
+  return (
+    <div className="min-h-screen bg-canvas text-body font-sans selection:bg-link-soft selection:text-ink transition-colors duration-200">
+      
+      {/* Toast Notification */}
       {toast.show && (
-        <div className={`fixed bottom-6 right-6 z-50 flex items-center gap-3 px-5 py-4 rounded-xl border backdrop-blur-md shadow-2xl transition-all duration-300 transform translate-y-0
-          ${toast.type === 'success' ? 'bg-emerald-950/80 border-emerald-500/30 text-emerald-300 glow-emerald' : ''}
-          ${toast.type === 'error' ? 'bg-rose-950/80 border-rose-500/30 text-rose-300' : ''}
-          ${toast.type === 'warning' ? 'bg-amber-950/80 border-amber-500/30 text-amber-300' : ''}
-          ${toast.type === 'info' ? 'bg-slate-900/80 border-slate-500/30 text-cyan-300 glow-cyan' : ''}
-        `}>
-          <div className="text-xl">
-            {toast.type === 'success' && '🛡️'}
-            {toast.type === 'error' && '⚠️'}
-            {toast.type === 'warning' && '⚡'}
-            {toast.type === 'info' && 'ℹ️'}
-          </div>
-          <p className="text-sm font-medium">{toast.message}</p>
+        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-3 px-4 py-3 bg-canvas-elevated border border-hairline rounded-md shadow-floating text-xs font-medium text-ink transition-all animate-in fade-in slide-in-from-bottom-2">
+          <span className="text-sm">
+            {toast.type === 'success' && '✓'}
+            {toast.type === 'error' && '✕'}
+            {toast.type === 'warning' && '⚠'}
+            {toast.type === 'info' && 'ℹ'}
+          </span>
+          <p className="text-body font-normal">{toast.message}</p>
         </div>
       )}
 
-      {/* Header */}
-      <header className="border-b border-white/10 bg-[#080B11]/80 backdrop-blur-md sticky top-0 z-40">
-        <div className="max-w-7xl mx-auto px-6 h-20 flex justify-between items-center">
+      {/* Navigation Bar (Geist nav-bar) */}
+      <header className="sticky top-0 z-40 bg-canvas/80 backdrop-blur-md border-b border-hairline transition-colors">
+        <div className="max-w-6xl mx-auto px-6 h-16 flex justify-between items-center">
+          
+          {/* Logo & Brand */}
           <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-cyan-400 to-indigo-600 flex items-center justify-center text-white font-bold text-xl shadow-lg shadow-cyan-500/20">
-              🛡️
+            <div className="h-7 w-7 rounded-sm bg-ink text-canvas flex items-center justify-center font-bold text-xs shadow-whisper">
+              ▲
             </div>
-            <div>
-              <span className="font-extrabold text-2xl tracking-tight bg-gradient-to-r from-cyan-400 via-indigo-300 to-purple-400 bg-clip-text text-transparent">
-                AEGIS ESCROW
+            <div className="flex items-center gap-2">
+              <span className="font-semibold text-base text-ink tracking-tight">
+                Aegis Escrow
               </span>
-              <span className="block text-[10px] text-cyan-500/70 tracking-widest font-mono font-bold uppercase">
-                Decentralized Bug Escrow
+              <span className="hidden sm:inline-block px-2 py-0.5 text-[10px] font-mono font-medium text-mute bg-hairline-soft border border-hairline rounded-sm uppercase tracking-wider">
+                Protocol v1.0
               </span>
             </div>
           </div>
 
-          <div className="flex items-center gap-4">
-            <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-xs font-mono">
-              <span className={`h-2.5 w-2.5 rounded-full ${isWeb3Mode ? 'bg-indigo-400 animate-pulse' : 'bg-amber-400'}`}></span>
-              <span className="text-gray-300">{isWeb3Mode ? "Sepolia Testnet" : "Local Sandbox Mode"}</span>
+          {/* Nav Controls */}
+          <div className="flex items-center gap-3">
+            
+            {/* Mode Indicator Pill */}
+            <div className="flex items-center gap-2 px-2.5 py-1 rounded-sm bg-canvas-elevated border border-hairline text-xs font-mono">
+              <span className={`h-2 w-2 rounded-full ${isWeb3Mode ? 'bg-link animate-pulse' : 'bg-mute'}`}></span>
+              <span className="text-mute font-medium">
+                {isWeb3Mode ? "Sepolia Testnet" : "Sandbox Mode"}
+              </span>
             </div>
 
+            {/* Dark Mode Toggle Button */}
+            <button
+              onClick={() => setIsDarkMode(!isDarkMode)}
+              className="h-8 w-8 flex items-center justify-center rounded-sm bg-canvas-elevated border border-hairline hover:bg-hairline-soft text-ink transition-colors"
+              title={isDarkMode ? "Switch to Light Mode" : "Switch to Dark Mode"}
+              aria-label="Toggle theme"
+            >
+              {isDarkMode ? (
+                // Sun Icon for Dark Mode
+                <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="4"></circle>
+                  <path d="M12 2v2"></path>
+                  <path d="M12 20v2"></path>
+                  <path d="m4.93 4.93 1.41 1.41"></path>
+                  <path d="m17.66 17.66 1.41 1.41"></path>
+                  <path d="M2 12h2"></path>
+                  <path d="M20 12h2"></path>
+                  <path d="m6.34 17.66-1.41 1.41"></path>
+                  <path d="m19.07 4.93-1.41 1.41"></path>
+                </svg>
+              ) : (
+                // Moon Icon for Light Mode
+                <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"></path>
+                </svg>
+              )}
+            </button>
+
             {account ? (
-              <div className="flex items-center gap-3 pl-3 pr-2 py-1.5 rounded-xl bg-white/5 border border-white/10">
-                <div className="text-right">
-                  <span className="block text-[10px] text-gray-500 font-bold uppercase">Balance</span>
-                  <span className="text-xs font-mono font-medium text-cyan-400">{balance} ETH</span>
+              <div className="flex items-center gap-2">
+                <div className="hidden sm:flex items-center px-3 py-1 bg-canvas-elevated border border-hairline rounded-sm text-xs font-mono text-ink">
+                  <span className="text-mute mr-1.5">Bal:</span> {balance} ETH
                 </div>
                 <button 
                   onClick={disconnectWallet}
-                  className="px-3 py-1.5 text-xs bg-red-950/40 border border-red-500/30 text-red-400 hover:bg-red-900/50 hover:text-white rounded-lg transition"
+                  className="h-8 px-3 text-xs font-medium text-ink bg-canvas-elevated border border-hairline hover:bg-hairline-soft rounded-sm transition-colors"
                 >
                   Disconnect
                 </button>
@@ -461,15 +524,9 @@ function App() {
             ) : (
               <button 
                 onClick={connectWallet}
-                className="relative group overflow-hidden px-5 py-2.5 bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 rounded-xl text-sm font-semibold transition shadow-lg shadow-cyan-500/20 active:scale-95"
+                className="h-8 px-3.5 text-xs font-medium text-canvas bg-ink hover:opacity-90 rounded-sm transition-colors shadow-whisper flex items-center gap-1.5 dark:bg-white dark:text-black dark:hover:bg-[#e6e6e6]"
               >
-                <div className="flex items-center gap-2">
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2.5" stroke="currentColor" className="w-4 h-4">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.91 11.672a.375.375 0 010 .656l-5.603 3.113a.375.375 0 01-.557-.328V8.887c0-.286.307-.466.557-.327l5.603 3.112z" />
-                  </svg>
-                  Connect Wallet
-                </div>
+                <span>Connect Wallet</span>
               </button>
             )}
           </div>
@@ -477,456 +534,528 @@ function App() {
       </header>
 
       {/* Main Container */}
-      <main className="max-w-7xl mx-auto px-6 mt-8">
+      <main className="max-w-6xl mx-auto px-6 pt-12 pb-24">
 
-        {/* Hero Banner with system description */}
-        <section className="p-8 rounded-3xl bg-gradient-to-r from-slate-900/90 via-[#0B0F19]/90 to-slate-900/90 border border-white/10 shadow-2xl relative overflow-hidden mb-8">
-          <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(139,92,246,0.1),transparent_50%)] pointer-events-none"></div>
-          <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
-            <div className="max-w-2xl">
-              <span className="px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-xs font-semibold text-cyan-400 uppercase tracking-wider">
-                Active Protocol
-              </span>
-              <h1 className="text-4xl md:text-5xl font-extrabold text-white mt-4 tracking-tight leading-tight">
-                Automating Web3 Trust <br/>
-                <span className="bg-gradient-to-r from-cyan-400 via-indigo-300 to-purple-400 bg-clip-text text-transparent">
-                  With Cryptographic Escrow
-                </span>
+        {/* Hero Band with Mesh Gradient (Geist hero-band) */}
+        <section className="relative rounded-lg border border-hairline bg-canvas-elevated p-8 sm:p-12 mb-10 overflow-hidden shadow-whisper transition-colors">
+          {/* Multi-stop mesh gradient restricted strictly to hero */}
+          <div className="absolute inset-0 hero-mesh-gradient pointer-events-none opacity-85"></div>
+          
+          <div className="relative z-10 grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
+            
+            <div className="lg:col-span-8">
+              <div className="inline-flex items-center gap-2 font-mono text-xs font-medium text-mute uppercase tracking-wider mb-4">
+                <span>Trustless Verification</span>
+                <span className="text-hairline">•</span>
+                <span className="text-link">Autonomous Payout</span>
+              </div>
+              
+              <h1 className="text-3xl sm:text-4xl lg:text-[44px] font-semibold text-ink tracking-[-2px] leading-[1.1] mb-4">
+                Automated Bug Bounty Escrow for Web3 Protocols
               </h1>
-              <p className="text-gray-400 mt-4 text-sm md:text-base leading-relaxed">
-                Aegis Escrow uses sandboxed automated environments to verify software vulnerabilities. 
-                Lock your bounty funds in the smart contract. Once our automated GitHub Actions runner checks the researcher's proof-of-exploit (PoE) and matches the flag, funds are paid out autonomously. No manual intervention, no rug-pulls.
+              
+              <p className="text-body text-sm sm:text-base leading-relaxed max-w-2xl">
+                Protocol owners lock bounty rewards in immutable smart contracts. Security researchers submit containerized Proof-of-Exploits. Sandboxed CI environments verify execution and trigger instant on-chain payouts without human bias.
               </p>
+
+              <div className="flex flex-wrap items-center gap-3 mt-6">
+                <a
+                  href="#create-bounty"
+                  className="h-10 px-5 text-sm font-medium text-canvas bg-ink hover:opacity-90 dark:bg-white dark:text-black dark:hover:bg-[#e6e6e6] rounded-pill transition-colors inline-flex items-center justify-center shadow-whisper"
+                >
+                  Create Bounty
+                </a>
+                <a
+                  href="#submit-poe"
+                  className="h-10 px-5 text-sm font-medium text-ink bg-canvas-elevated border border-hairline hover:bg-hairline-soft rounded-pill transition-colors inline-flex items-center justify-center"
+                >
+                  Submit PoE
+                </a>
+              </div>
             </div>
 
-            {/* Smart Contract Info Pill */}
-            <div className="flex flex-col gap-3 p-5 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-sm self-start lg:self-center font-mono text-xs w-full lg:w-80">
-              <div className="flex justify-between items-center text-gray-500 font-bold border-b border-white/10 pb-2">
-                <span>ESCROW DETAILS</span>
-                <span className="text-cyan-500 font-bold">ONLINE</span>
+            {/* Contract Spec Sheet Card */}
+            <div className="lg:col-span-4 bg-canvas/90 border border-hairline rounded-md p-4 text-xs font-mono space-y-2.5 transition-colors">
+              <div className="flex justify-between items-center text-mute border-b border-hairline pb-2 font-semibold">
+                <span>ESCROW SPEC</span>
+                <span className="text-link font-medium">SEPOLIA ACTIVE</span>
               </div>
+              
               <div className="flex justify-between">
-                <span className="text-gray-400">Address:</span>
+                <span className="text-mute">Contract:</span>
                 <a 
                   href={`https://sepolia.etherscan.io/address/${CONTRACT_ADDRESS}`} 
                   target="_blank" 
                   rel="noopener noreferrer" 
-                  className="text-indigo-400 hover:text-indigo-300 underline flex items-center gap-1"
+                  className="text-link hover:underline truncate max-w-[140px]"
+                  title={CONTRACT_ADDRESS}
                 >
-                  {CONTRACT_ADDRESS.substring(0, 6)}...{CONTRACT_ADDRESS.substring(38)}
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2.5" stroke="currentColor" className="w-3 h-3">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
-                  </svg>
+                  {truncateAddress(CONTRACT_ADDRESS)}
                 </a>
               </div>
+              
               <div className="flex justify-between">
-                <span className="text-gray-400">Oracle Wallet:</span>
-                <span className="text-gray-300">0x3914...f9C1</span>
+                <span className="text-mute">Oracle:</span>
+                <span className="text-body font-mono">0x3914...f9C1</span>
               </div>
+
               <div className="flex justify-between">
-                <span className="text-gray-400">Environment:</span>
-                <span className="text-amber-400">Docker Sandbox v1.2</span>
+                <span className="text-mute">Sandbox:</span>
+                <span className="text-body">Docker v24 + GhA</span>
               </div>
             </div>
+
           </div>
         </section>
 
-        {/* Stats Grid */}
-        <section className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-          <div className="p-5 rounded-2xl bg-slate-900/60 border border-white/10 hover:border-white/20 transition duration-300">
-            <span className="block text-xs text-gray-500 uppercase font-mono font-bold">Total Escrow Value</span>
-            <div className="flex items-baseline gap-2 mt-2">
-              <span className="text-3xl font-extrabold text-white font-display tracking-tight">{tvl}</span>
-              <span className="text-xs font-bold font-mono text-cyan-400">ETH</span>
+        {/* Stats Grid (Geist logo-strip & feature-cards) */}
+        <section className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-10">
+          
+          <div className="p-5 rounded-md bg-canvas-elevated border border-hairline shadow-whisper transition-colors">
+            <span className="block text-xs font-mono uppercase font-medium text-mute tracking-wider">Total Value Locked</span>
+            <div className="flex items-baseline gap-1.5 mt-2">
+              <span className="text-2xl lg:text-3xl font-semibold text-ink tracking-tight">{tvl}</span>
+              <span className="text-xs font-mono font-medium text-mute">ETH</span>
             </div>
-            <div className="text-[10px] text-gray-500 mt-1">Locked secure in Smart Contract</div>
+            <div className="text-[11px] text-mute mt-1">Locked in BountyEscrow</div>
           </div>
           
-          <div className="p-5 rounded-2xl bg-slate-900/60 border border-white/10 hover:border-white/20 transition duration-300">
-            <span className="block text-xs text-gray-500 uppercase font-mono font-bold">Active Bounties</span>
-            <div className="flex items-baseline gap-2 mt-2">
-              <span className="text-3xl font-extrabold text-white font-display tracking-tight">{bountyCount}</span>
-              <span className="text-xs font-semibold text-indigo-400 font-mono">Bounties</span>
+          <div className="p-5 rounded-md bg-canvas-elevated border border-hairline shadow-whisper transition-colors">
+            <span className="block text-xs font-mono uppercase font-medium text-mute tracking-wider">Active Bounties</span>
+            <div className="flex items-baseline gap-1.5 mt-2">
+              <span className="text-2xl lg:text-3xl font-semibold text-ink tracking-tight">{bountyCount}</span>
+              <span className="text-xs font-mono font-medium text-mute">Tasks</span>
             </div>
-            <div className="text-[10px] text-indigo-400 mt-1">Verifiable by sandboxed Docker</div>
+            <div className="text-[11px] text-mute mt-1">Open for PoE audit</div>
           </div>
 
-          <div className="p-5 rounded-2xl bg-slate-900/60 border border-white/10 hover:border-white/20 transition duration-300">
-            <span className="block text-xs text-gray-500 uppercase font-mono font-bold">Paid Out (Resolved)</span>
-            <div className="flex items-baseline gap-2 mt-2">
-              <span className="text-3xl font-extrabold text-white font-display tracking-tight">{resolvedCount}</span>
-              <span className="text-xs font-semibold text-emerald-400 font-mono">Claims</span>
+          <div className="p-5 rounded-md bg-canvas-elevated border border-hairline shadow-whisper transition-colors">
+            <span className="block text-xs font-mono uppercase font-medium text-mute tracking-wider">Resolved Claims</span>
+            <div className="flex items-baseline gap-1.5 mt-2">
+              <span className="text-2xl lg:text-3xl font-semibold text-ink tracking-tight">{resolvedCount}</span>
+              <span className="text-xs font-mono font-medium text-mute">Payouts</span>
             </div>
-            <div className="text-[10px] text-emerald-400 mt-1">Exploits validated by CI oracle</div>
+            <div className="text-[11px] text-mute mt-1">Autonomous release</div>
           </div>
 
-          <div className="p-5 rounded-2xl bg-slate-900/60 border border-white/10 hover:border-white/20 transition duration-300 flex flex-col justify-between">
+          <div className="p-5 rounded-md bg-canvas-elevated border border-hairline shadow-whisper flex flex-col justify-between transition-colors">
             <div>
-              <span className="block text-xs text-gray-500 uppercase font-mono font-bold">CI Runner Engine</span>
-              <div className="flex items-center gap-2 mt-3">
-                <span className="h-2.5 w-2.5 rounded-full bg-emerald-500 animate-ping"></span>
-                <span className="text-sm font-bold font-mono text-emerald-400 uppercase tracking-wider">ONLINE & LISTENING</span>
+              <span className="block text-xs font-mono uppercase font-medium text-mute tracking-wider">CI Testbed Engine</span>
+              <div className="flex items-center gap-2 mt-2">
+                <span className="h-2 w-2 rounded-full bg-link"></span>
+                <span className="text-xs font-mono font-semibold text-ink uppercase">READY</span>
               </div>
             </div>
-            <span className="text-[9px] text-gray-500 mt-2 block font-mono">Workflow: github.com/Mukul312004/defi-bounty-escrow</span>
+            <span className="text-[11px] font-mono text-mute mt-2 block truncate">
+              bounty-ci.yml
+            </span>
           </div>
+
+        </section>
+
+        {/* Category Filter Tabs (Geist button-category-pill) */}
+        <section className="flex items-center gap-2 overflow-x-auto pb-4 mb-8 custom-scrollbar">
+          <span className="text-xs font-mono uppercase font-medium text-mute mr-2 shrink-0">Filter:</span>
+          {categories.map((cat) => (
+            <button
+              key={cat}
+              onClick={() => setCategoryFilter(cat)}
+              className={`h-7 px-3 text-xs font-medium rounded-pill transition-colors shrink-0 ${
+                categoryFilter === cat
+                  ? 'bg-ink text-canvas shadow-whisper dark:bg-white dark:text-black'
+                  : 'bg-canvas-elevated text-body border border-hairline hover:bg-hairline-soft hover:text-ink'
+              }`}
+            >
+              {cat}
+            </button>
+          ))}
         </section>
 
         {/* Action Panel Layout */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start mb-12">
           
-          {/* Left Columns - Bounty Creation & Interactive List */}
-          <div className="lg:col-span-6 flex flex-col gap-8">
+          {/* Left Column: Create Bounty & Bounty Database */}
+          <div className="lg:col-span-6 space-y-8">
             
-            {/* Create Bounty Form */}
-            <div className="p-6 rounded-2xl bg-[#0B0F19]/80 border border-white/10 glow-card">
-              <div className="flex items-center gap-2 mb-4">
-                <div className="p-2 rounded-lg bg-cyan-900/40 text-cyan-400">
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor" className="w-5 h-5">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v6m3-3H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                </div>
-                <h2 className="text-xl font-bold text-white tracking-tight">1. Create Bounty (Owner)</h2>
+            {/* Create Bounty Card (Geist feature-card) */}
+            <div id="create-bounty" className="p-6 rounded-md bg-canvas-elevated border border-hairline shadow-whisper transition-colors">
+              <div className="flex items-center justify-between mb-2">
+                <span className="font-mono text-xs font-medium text-mute uppercase tracking-wider">01 / PROTOCOL OWNER</span>
+                <span className="text-[10px] font-mono text-mute bg-hairline-soft px-2 py-0.5 rounded-sm border border-hairline">
+                  {isWeb3Mode ? "Contract Deposit" : "Sandbox State"}
+                </span>
               </div>
-              <p className="text-xs text-gray-400 mb-5">
-                Fund a new bounty. Specify target vulnerability and repo. Reward will be locked in the smart contract.
+              
+              <h2 className="text-lg font-semibold text-ink tracking-[-0.4px]">
+                Create & Lock Bounty
+              </h2>
+              
+              <p className="text-xs text-body mt-1 mb-5">
+                Deposit ETH into the escrow contract and provide target sandbox repository details.
               </p>
 
               <form onSubmit={handleCreateBounty} className="space-y-4">
                 <div>
-                  <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Bounty Reward Amount (ETH)</label>
+                  <label className="block text-xs font-medium text-ink mb-1.5">
+                    Reward Amount (ETH)
+                  </label>
                   <div className="relative">
                     <input 
                       type="number" step="0.0001" min="0.0001" required
                       value={bountyAmount} onChange={(e) => setBountyAmount(e.target.value)}
-                      placeholder="e.g. 0.25"
-                      className="w-full bg-slate-950 border border-white/10 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 rounded-xl px-4 py-3 text-white placeholder-gray-600 outline-none text-sm transition"
+                      placeholder="0.25"
+                      className="w-full bg-canvas-elevated border border-hairline focus:border-ink rounded-sm px-3 py-2 text-sm text-ink placeholder-faint outline-none transition-colors"
                     />
-                    <div className="absolute inset-y-0 right-3 flex items-center pointer-events-none text-xs font-mono font-bold text-gray-500">
+                    <div className="absolute inset-y-0 right-3 flex items-center pointer-events-none text-xs font-mono font-medium text-mute">
                       ETH
                     </div>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Bounty Title</label>
+                    <label className="block text-xs font-medium text-ink mb-1.5">
+                      Bounty Title
+                    </label>
                     <input 
                       type="text" required
                       value={bountyTitle} onChange={(e) => setBountyTitle(e.target.value)}
-                      placeholder="e.g., Read database secrets"
-                      className="w-full bg-slate-950 border border-white/10 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 rounded-xl px-4 py-3 text-white placeholder-gray-600 outline-none text-sm transition"
+                      placeholder="e.g. Read database secrets"
+                      className="w-full bg-canvas-elevated border border-hairline focus:border-ink rounded-sm px-3 py-2 text-sm text-ink placeholder-faint outline-none transition-colors"
                     />
                   </div>
+
                   <div>
-                    <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Vulnerability Class</label>
+                    <label className="block text-xs font-medium text-ink mb-1.5">
+                      Vulnerability Category
+                    </label>
                     <select 
                       value={bountyCategory} onChange={(e) => setBountyCategory(e.target.value)}
-                      className="w-full bg-slate-950 border border-white/10 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 rounded-xl px-4 py-3 text-white outline-none text-sm transition"
+                      className="w-full bg-canvas-elevated border border-hairline focus:border-ink rounded-sm px-3 py-2 text-sm text-ink outline-none transition-colors"
                     >
                       <option value="SQL Injection">SQL Injection</option>
                       <option value="Reentrancy">Reentrancy (Vault Drain)</option>
-                      <option value="Cryptography">Cryptography (Signature Malleability)</option>
-                      <option value="Arithmetic Error">Arithmetic Overflow / Rounding</option>
+                      <option value="Cryptography">Cryptography (Malleability)</option>
+                      <option value="Arithmetic Error">Arithmetic Overflow</option>
                     </select>
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Sandbox Repository (GitHub)</label>
+                  <label className="block text-xs font-medium text-ink mb-1.5">
+                    Target Repository URL
+                  </label>
                   <input 
                     type="text" 
                     value={bountyRepo} onChange={(e) => setBountyRepo(e.target.value)}
-                    placeholder="e.g., github.com/Mukul312004/defi-bounty-escrow"
-                    className="w-full bg-slate-950 border border-white/10 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 rounded-xl px-4 py-3 text-white placeholder-gray-600 outline-none text-sm transition"
+                    placeholder="github.com/Mukul312004/defi-bounty-escrow"
+                    className="w-full bg-canvas-elevated border border-hairline focus:border-ink rounded-sm px-3 py-2 text-sm font-mono text-ink placeholder-faint outline-none transition-colors"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Bounty Description & Flag Condition</label>
+                  <label className="block text-xs font-medium text-ink mb-1.5">
+                    Description & Expected Flag
+                  </label>
                   <textarea 
                     rows="2"
                     value={bountyDesc} onChange={(e) => setBountyDesc(e.target.value)}
-                    placeholder="Provide details. E.g., The app must yield the flag starting with flag{...}"
-                    className="w-full bg-slate-950 border border-white/10 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 rounded-xl px-4 py-3 text-white placeholder-gray-600 outline-none text-sm transition resize-none"
+                    placeholder="The containerized PoE must extract flag{...} from the target service."
+                    className="w-full bg-canvas-elevated border border-hairline focus:border-ink rounded-sm px-3 py-2 text-sm text-ink placeholder-faint outline-none transition-colors resize-none"
                   ></textarea>
                 </div>
 
                 <button 
                   type="submit" 
-                  className="w-full bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-white font-bold py-3 px-4 rounded-xl transition text-sm shadow-md shadow-cyan-500/10 flex items-center justify-center gap-2 mt-2"
+                  className="w-full h-10 text-sm font-medium text-canvas bg-ink hover:opacity-90 dark:bg-white dark:text-black dark:hover:bg-[#e6e6e6] rounded-sm transition-colors shadow-whisper flex items-center justify-center gap-2 mt-2"
                 >
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2.5" stroke="currentColor" className="w-4 h-4">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
-                  </svg>
-                  {isWeb3Mode ? "Lock Funds on Sepolia Contract" : "Lock Funds in Local Sandbox"}
+                  <span>{isWeb3Mode ? "Lock Funds on Sepolia Contract" : "Lock Funds in Local Sandbox"}</span>
                 </button>
               </form>
             </div>
 
-            {/* Interactive Bounties List */}
-            <div className="p-6 rounded-2xl bg-[#0B0F19]/80 border border-white/10">
+            {/* Escrow Bounty Database (Geist feature-card grid) */}
+            <div className="p-6 rounded-md bg-canvas-elevated border border-hairline shadow-whisper transition-colors">
               <div className="flex justify-between items-center mb-4">
-                <div className="flex items-center gap-2">
-                  <div className="p-2 rounded-lg bg-indigo-900/40 text-indigo-400">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor" className="w-5 h-5">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 6.75h12M8.25 12h12m-12 5.25h12M3.75 6.75h.007v.008H3.75V6.75zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zM3.75 12h.007v.008H3.75V12zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm-.375 5.25h.007v.008H3.75v-.008zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
-                    </svg>
-                  </div>
-                  <h3 className="text-lg font-bold text-white tracking-tight">Escrow Bounty Database</h3>
+                <div>
+                  <span className="font-mono text-xs font-medium text-mute uppercase tracking-wider block">EXPLORER</span>
+                  <h3 className="text-base font-semibold text-ink tracking-tight">Active Escrow Database</h3>
                 </div>
-                <span className="text-[10px] text-gray-500 font-mono uppercase tracking-widest">Select to claim</span>
+                <span className="text-xs font-mono text-mute">{filteredBounties.length} items</span>
               </div>
 
-              <div className="space-y-3 max-h-[350px] overflow-y-auto pr-1 terminal-scrollbar">
-                {bountiesList.length === 0 && (
-                  <div className="text-center text-gray-500 text-xs py-8 font-mono">
-                    No bounties loaded. Create one above or check backend connection.
+              <div className="space-y-2.5 max-h-[380px] overflow-y-auto pr-1 custom-scrollbar">
+                {filteredBounties.length === 0 && (
+                  <div className="text-center text-mute text-xs py-8 font-mono border border-dashed border-hairline rounded-sm">
+                    No bounties found for this filter.
                   </div>
                 )}
-                {bountiesList.map((b) => (
-                  <div 
-                    key={b._id || b.id} 
-                    onClick={() => selectBountyCard(b)}
-                    className={`p-4 rounded-xl border transition cursor-pointer text-left ${
-                      (selectedBounty?._id || selectedBounty?.id) === (b._id || b.id) 
-                        ? 'bg-cyan-950/30 border-cyan-500/50 glow-cyan' 
-                        : 'bg-slate-950/50 border-white/5 hover:border-white/10 hover:bg-slate-900/50'
-                    }`}
-                  >
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-mono font-bold text-cyan-400">#{getBountyDisplayId(b)}</span>
-                          <span className="text-sm font-bold text-white tracking-tight">{b.title}</span>
+                {filteredBounties.map((b) => {
+                  const isSelected = (selectedBounty?._id || selectedBounty?.id) === (b._id || b.id);
+                  return (
+                    <div 
+                      key={b._id || b.id} 
+                      onClick={() => selectBountyCard(b)}
+                      className={`p-3.5 rounded-sm border transition-all cursor-pointer text-left ${
+                        isSelected 
+                          ? 'bg-hairline-soft border-ink shadow-whisper' 
+                          : 'bg-canvas-elevated border-hairline hover:border-mute/40'
+                      }`}
+                    >
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-mono font-semibold text-ink">
+                              #{getBountyDisplayId(b)}
+                            </span>
+                            <span className="text-sm font-medium text-ink tracking-tight">
+                              {b.title}
+                            </span>
+                          </div>
+                          <span className="text-[11px] font-mono text-mute block mt-0.5 truncate max-w-[280px]">
+                            {b.repo}
+                          </span>
                         </div>
-                        <span className="text-[10px] font-mono text-gray-500 block mt-1">{b.repo}</span>
+                        
+                        <div className="text-right">
+                          <span className="text-xs font-mono font-semibold text-ink block">
+                            {b.amount} ETH
+                          </span>
+                          <span className={`inline-block text-[10px] font-mono px-2 py-0.5 rounded-sm mt-1 border ${
+                            b.isActive 
+                              ? 'bg-link-soft text-link dark:text-[#3291ff] border-link/20 font-medium' 
+                              : 'bg-hairline-soft text-mute border-hairline font-normal'
+                          }`}>
+                            {b.isActive ? "ACTIVE" : "RESOLVED"}
+                          </span>
+                        </div>
                       </div>
-                      <div className="text-right">
-                        <span className="text-sm font-extrabold text-white block">{b.amount} ETH</span>
-                        <span className={`inline-block text-[9px] font-bold px-1.5 py-0.5 rounded-full mt-1 ${
-                          b.isActive ? 'bg-emerald-950 text-emerald-400 border border-emerald-500/20' : 'bg-red-950 text-red-400 border border-red-500/20'
-                        }`}>
-                          {b.isActive ? "🟢 Active" : "🔴 Claimed"}
-                        </span>
+                      
+                      <div className="flex justify-between items-center mt-2.5 pt-2 border-t border-hairline text-[11px] text-mute">
+                        <span>Category: <strong className="text-body font-medium">{b.category}</strong></span>
+                        <span className="font-mono">By {truncateAddress(b.creator)}</span>
                       </div>
                     </div>
-                    <div className="flex justify-between items-center mt-3 pt-3 border-t border-white/5 text-[10px] text-gray-400">
-                      <span>Category: <strong className="text-indigo-400">{b.category}</strong></span>
-                      <span className="font-mono text-gray-500">Creator: {truncateAddress(b.creator)}</span>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
 
           </div>
 
-          {/* Right Columns - Researcher Submission & Live Pipeline Status */}
-          <div className="lg:col-span-6 flex flex-col gap-8">
+          {/* Right Column: Submit PoE & CI Pipeline */}
+          <div className="lg:col-span-6 space-y-8">
             
-            {/* Researcher Action Panel */}
-            <div className="p-6 rounded-2xl bg-[#0B0F19]/80 border border-white/10 glow-card">
-              <div className="flex items-center gap-2 mb-4">
-                <div className="p-2 rounded-lg bg-purple-900/40 text-purple-400">
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor" className="w-5 h-5">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M14.25 9.75L16.5 12l-2.25 2.25m-4.5 0L7.5 12l2.25-2.25M6 20.25h12A2.25 2.25 0 0020.25 18V6A2.25 2.25 0 0018 3.75H6A2.25 2.25 0 003.75 6v12A2.25 2.25 0 006 20.25z" />
-                  </svg>
-                </div>
-                <h2 className="text-xl font-bold text-white tracking-tight">2. Submit PoE (Researcher)</h2>
+            {/* Submit PoE Card (Geist feature-card) */}
+            <div id="submit-poe" className="p-6 rounded-md bg-canvas-elevated border border-hairline shadow-whisper transition-colors">
+              <div className="flex items-center justify-between mb-2">
+                <span className="font-mono text-xs font-medium text-mute uppercase tracking-wider">02 / SECURITY RESEARCHER</span>
+                <span className="text-[10px] font-mono text-link dark:text-[#3291ff] bg-link-soft border border-link/20 px-2 py-0.5 rounded-sm">
+                  PoE Verification
+                </span>
               </div>
 
-              {/* Step 2.1: Target Selection */}
+              <h2 className="text-lg font-semibold text-ink tracking-[-0.4px]">
+                Submit Proof-of-Exploit
+              </h2>
+
+              <p className="text-xs text-body mt-1 mb-5">
+                Query target bounty, supply your packaged exploit Docker container, and specify your payout address.
+              </p>
+
+              {/* Bounty Lookup Form */}
               <form onSubmit={handleFetchBounty} className="mb-4">
-                <div className="flex justify-between items-center mb-1.5">
-                  <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider">Query Escrow Bounty</label>
-                  <span className="text-[10px] text-gray-500 font-mono">Search by title or on-chain ID</span>
-                </div>
+                <label className="block text-xs font-medium text-ink mb-1.5">
+                  Select or Query Target Bounty
+                </label>
                 <div className="flex gap-2">
                   <input 
                     type="text" required
                     value={searchBountyId} onChange={(e) => setSearchBountyId(e.target.value)}
-                    placeholder="Bounty title, on-chain ID, or DB ID"
-                    className="flex-1 bg-slate-950 border border-white/10 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 rounded-xl px-4 py-3 text-white placeholder-gray-600 outline-none text-sm transition"
+                    placeholder="Search by ID or title"
+                    className="flex-1 bg-canvas-elevated border border-hairline focus:border-ink rounded-sm px-3 py-2 text-sm text-ink placeholder-faint outline-none transition-colors"
                   />
                   <button 
                     type="submit" 
-                    className="px-5 py-3 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-2 border border-white/10"
+                    className="h-9 px-3 text-xs font-medium text-ink bg-canvas-elevated border border-hairline hover:bg-hairline-soft rounded-sm transition-colors"
                   >
-                    Fetch Info
+                    Select
                   </button>
                 </div>
               </form>
 
-              {/* Render selected bounty preview card */}
+              {/* Selected Bounty Details Inset */}
               {selectedBounty && (
-                <div className="p-4 rounded-xl bg-slate-950 border border-cyan-500/20 mb-5 text-left">
-                  <div className="flex justify-between items-center mb-2">
-                    <span className="text-[10px] font-mono text-cyan-400 bg-cyan-950/60 px-2 py-0.5 rounded border border-cyan-500/20">
-                      Bounty #{getBountyDisplayId(selectedBounty)} Details
+                <div className="p-3.5 rounded-sm bg-hairline-soft border border-hairline mb-5 text-xs text-left transition-colors">
+                  <div className="flex justify-between items-center mb-1.5">
+                    <span className="font-mono font-medium text-ink">
+                      Target #{getBountyDisplayId(selectedBounty)} — {selectedBounty.title}
                     </span>
-                    <span className={`text-xs font-bold font-mono ${selectedBounty.isActive ? 'text-emerald-400' : 'text-rose-400'}`}>
-                      {selectedBounty.isActive ? "ACTIVE ESCROW" : "RESOLVED & CLAIMS CLOSED"}
+                    <span className={`font-mono text-[10px] ${selectedBounty.isActive ? 'text-link dark:text-[#3291ff] font-semibold' : 'text-mute'}`}>
+                      {selectedBounty.isActive ? "OPEN REWARD" : "CLOSED"}
                     </span>
                   </div>
-                  <h4 className="text-sm font-bold text-white">{selectedBounty.title}</h4>
-                  <p className="text-xs text-gray-400 mt-1.5 leading-relaxed bg-white/5 p-2 rounded border border-white/5">
+                  <p className="text-body text-[11px] leading-relaxed mb-2">
                     {selectedBounty.description}
                   </p>
-                  <div className="grid grid-cols-2 gap-4 mt-3 pt-3 border-t border-white/5 text-xs">
+                  <div className="grid grid-cols-2 gap-2 pt-2 border-t border-hairline text-mute">
                     <div>
-                      <span className="text-gray-500 block uppercase text-[9px] font-bold">Reward Pool</span>
-                      <strong className="text-white text-sm">{selectedBounty.amount} ETH</strong>
+                      <span>Bounty Pool: </span>
+                      <strong className="text-ink font-mono">{selectedBounty.amount} ETH</strong>
                     </div>
-                    <div>
-                      <span className="text-gray-500 block uppercase text-[9px] font-bold">Target Sandbox repo</span>
-                      <span className="text-indigo-400 font-mono text-[11px] truncate block">{selectedBounty.repo}</span>
+                    <div className="truncate">
+                      <span>Repo: </span>
+                      <strong className="text-body font-mono">{selectedBounty.repo}</strong>
                     </div>
                   </div>
                 </div>
               )}
 
-              {/* Step 2.2: PoE Submissions form */}
+              {/* PoE Submission Form */}
               <div className="space-y-4">
                 <div>
-                  <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Proof-of-Exploit Docker Image</label>
+                  <label className="block text-xs font-medium text-ink mb-1.5">
+                    Proof-of-Exploit Docker Image Tag
+                  </label>
                   <input 
                     type="text" required
                     value={poeImage} onChange={(e) => setPoeImage(e.target.value)}
-                    placeholder="e.g. registry/exploit-payload:v1.0"
+                    placeholder="registry/exploit-payload:v1.0"
                     disabled={!selectedBounty?.isActive}
-                    className="w-full bg-slate-950 border border-white/10 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 rounded-xl px-4 py-3 text-white placeholder-gray-600 outline-none text-sm transition disabled:opacity-50"
+                    className="w-full bg-canvas-elevated border border-hairline focus:border-ink rounded-sm px-3 py-2 text-sm font-mono text-ink placeholder-faint outline-none transition-colors disabled:opacity-50"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Researcher Payout Wallet Address</label>
+                  <label className="block text-xs font-medium text-ink mb-1.5">
+                    Researcher Payout Wallet Address
+                  </label>
                   <input 
                     type="text" required
                     value={researcherPayoutAddress} onChange={(e) => setResearcherPayoutAddress(e.target.value)}
                     placeholder="0x..."
                     disabled={!selectedBounty?.isActive}
-                    className="w-full bg-slate-950 border border-white/10 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 rounded-xl px-4 py-3 text-white placeholder-gray-600 outline-none text-sm transition disabled:opacity-50 font-mono"
+                    className="w-full bg-canvas-elevated border border-hairline focus:border-ink rounded-sm px-3 py-2 text-sm font-mono text-ink placeholder-faint outline-none transition-colors disabled:opacity-50"
                   />
                 </div>
 
                 <button 
                   onClick={runVerificationPipeline}
                   disabled={!selectedBounty?.isActive || pipelineStatus === 'running'}
-                  className="w-full bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-400 hover:to-indigo-500 text-white font-bold py-3 px-4 rounded-xl transition text-sm shadow-md shadow-purple-500/10 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed mt-2"
+                  className="w-full h-10 text-sm font-medium text-canvas bg-ink hover:opacity-90 dark:bg-white dark:text-black dark:hover:bg-[#e6e6e6] rounded-sm transition-colors shadow-whisper flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed mt-2"
                 >
                   {pipelineStatus === 'running' ? (
-                    <>
-                      <svg className="animate-spin -ml-1 mr-3 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                      </svg>
-                      Executing Pipeline...
-                    </>
+                    <span className="flex items-center gap-2 font-mono text-xs">
+                      <span className="h-3 w-3 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+                      Executing CI Testbed Pipeline...
+                    </span>
                   ) : (
-                    <>
-                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2.5" stroke="currentColor" className="w-4 h-4">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M15.59 14.37a6 6 0 01-5.84 7.38v-4.8m5.84-2.58a14.98 14.98 0 006.16-12.12A14.98 14.98 0 009.64 3.75 14.98 14.98 0 003.5 15.86c0 1 .13 1.96.38 2.89m12.11-4.38l-4.8-4.8m0 0a3.97 3.97 0 015.62-5.63m-5.62 5.63L3.5 15.86m0 0a3.97 3.97 0 005.63 5.62" />
-                      </svg>
-                      Trigger Automated Verification
-                    </>
+                    <span>Trigger Automated Verification</span>
                   )}
                 </button>
               </div>
             </div>
 
             {/* Pipeline Step Visualizer */}
-            <div className="p-6 rounded-2xl bg-[#0B0F19]/80 border border-white/10">
-              <h3 className="text-base font-bold text-white tracking-tight mb-4 flex items-center gap-2">
-                <span>CI Testbed Verification Pipeline</span>
-                {pipelineStatus === 'running' && <span className="h-2 w-2 rounded-full bg-indigo-500 animate-ping"></span>}
-              </h3>
+            <div className="p-6 rounded-md bg-canvas-elevated border border-hairline shadow-whisper transition-colors">
+              <div className="flex justify-between items-center mb-5">
+                <div>
+                  <span className="font-mono text-xs font-medium text-mute uppercase tracking-wider block">ORACLE LIFECYCLE</span>
+                  <h3 className="text-base font-semibold text-ink tracking-tight">CI Verification Pipeline</h3>
+                </div>
+                {pipelineStatus === 'running' && (
+                  <span className="inline-flex items-center gap-1.5 text-xs font-mono text-link">
+                    <span className="h-2 w-2 rounded-full bg-link animate-ping"></span>
+                    Running
+                  </span>
+                )}
+              </div>
 
               {/* Progress timeline */}
-              <div className="space-y-4 font-mono text-xs text-left relative before:absolute before:left-3.5 before:top-2 before:bottom-2 before:w-[2px] before:bg-white/5">
+              <div className="space-y-4 font-mono text-xs text-left relative before:absolute before:left-3 before:top-2 before:bottom-2 before:w-[1px] before:bg-hairline">
                 
                 {/* Step 1 */}
                 <div className="flex items-start gap-4 relative">
-                  <div className={`h-7 w-7 rounded-full flex items-center justify-center font-bold border z-10 transition ${
-                    currentStep > 1 ? 'bg-emerald-950 text-emerald-400 border-emerald-500' :
-                    currentStep === 1 ? 'bg-indigo-950 text-indigo-400 border-indigo-500 glow-purple animate-pulse' :
-                    'bg-slate-950 text-gray-600 border-white/5'
+                  <div className={`h-6 w-6 rounded-full flex items-center justify-center text-[11px] font-bold border z-10 transition-colors ${
+                    currentStep > 1 ? 'bg-ink text-canvas border-ink dark:bg-white dark:text-black dark:border-white' :
+                    currentStep === 1 ? 'bg-link text-white border-link shadow-whisper' :
+                    'bg-canvas-elevated text-mute border-hairline'
                   }`}>
                     {currentStep > 1 ? '✓' : '1'}
                   </div>
                   <div>
-                    <span className={`block font-bold ${currentStep === 1 ? 'text-indigo-400' : currentStep > 1 ? 'text-gray-300' : 'text-gray-600'}`}>
-                      Trigger Sandbox Runner
+                    <span className={`block font-medium ${currentStep === 1 ? 'text-ink font-semibold' : currentStep > 1 ? 'text-body' : 'text-mute'}`}>
+                      Initialize Runner
                     </span>
-                    <span className="text-[10px] text-gray-500 block">Initialize CI runtime in github actions.</span>
+                    <span className="text-[11px] text-mute block font-sans">Boot GitHub Actions isolated CI runtime</span>
                   </div>
                 </div>
 
                 {/* Step 2 */}
                 <div className="flex items-start gap-4 relative">
-                  <div className={`h-7 w-7 rounded-full flex items-center justify-center font-bold border z-10 transition ${
-                    currentStep > 2 ? 'bg-emerald-950 text-emerald-400 border-emerald-500' :
-                    currentStep === 2 ? 'bg-indigo-950 text-indigo-400 border-indigo-500 glow-purple animate-pulse' :
-                    'bg-slate-950 text-gray-600 border-white/5'
+                  <div className={`h-6 w-6 rounded-full flex items-center justify-center text-[11px] font-bold border z-10 transition-colors ${
+                    currentStep > 2 ? 'bg-ink text-canvas border-ink dark:bg-white dark:text-black dark:border-white' :
+                    currentStep === 2 ? 'bg-link text-white border-link shadow-whisper' :
+                    'bg-canvas-elevated text-mute border-hairline'
                   }`}>
                     {currentStep > 2 ? '✓' : '2'}
                   </div>
                   <div>
-                    <span className={`block font-bold ${currentStep === 2 ? 'text-indigo-400' : currentStep > 2 ? 'text-gray-300' : 'text-gray-600'}`}>
-                      Boot Vulnerable Target App
+                    <span className={`block font-medium ${currentStep === 2 ? 'text-ink font-semibold' : currentStep > 2 ? 'text-body' : 'text-mute'}`}>
+                      Boot Target App Sandbox
                     </span>
-                    <span className="text-[10px] text-gray-500 block">Initialize seed DB and start Flask target in network.</span>
+                    <span className="text-[11px] text-mute block font-sans">Seed database flag & start target container</span>
                   </div>
                 </div>
 
                 {/* Step 3 */}
                 <div className="flex items-start gap-4 relative">
-                  <div className={`h-7 w-7 rounded-full flex items-center justify-center font-bold border z-10 transition ${
-                    currentStep > 3 ? 'bg-emerald-950 text-emerald-400 border-emerald-500' :
-                    currentStep === 3 ? 'bg-indigo-950 text-indigo-400 border-indigo-500 glow-purple animate-pulse' :
-                    'bg-slate-950 text-gray-600 border-white/5'
+                  <div className={`h-6 w-6 rounded-full flex items-center justify-center text-[11px] font-bold border z-10 transition-colors ${
+                    currentStep > 3 ? 'bg-ink text-canvas border-ink dark:bg-white dark:text-black dark:border-white' :
+                    currentStep === 3 ? 'bg-link text-white border-link shadow-whisper' :
+                    'bg-canvas-elevated text-mute border-hairline'
                   }`}>
                     {currentStep > 3 ? '✓' : '3'}
                   </div>
                   <div>
-                    <span className={`block font-bold ${currentStep === 3 ? 'text-indigo-400' : currentStep > 3 ? 'text-gray-300' : 'text-gray-600'}`}>
+                    <span className={`block font-medium ${currentStep === 3 ? 'text-ink font-semibold' : currentStep > 3 ? 'text-body' : 'text-mute'}`}>
                       Execute Proof-of-Exploit
                     </span>
-                    <span className="text-[10px] text-gray-500 block">Run the submitted docker container exploit payloads.</span>
+                    <span className="text-[11px] text-mute block font-sans">Run researcher exploit container in sandbox network</span>
                   </div>
                 </div>
 
                 {/* Step 4 */}
                 <div className="flex items-start gap-4 relative">
-                  <div className={`h-7 w-7 rounded-full flex items-center justify-center font-bold border z-10 transition ${
-                    currentStep > 4 ? 'bg-emerald-950 text-emerald-400 border-emerald-500' :
-                    currentStep === 4 ? 'bg-indigo-950 text-indigo-400 border-indigo-500 glow-purple animate-pulse' :
-                    'bg-slate-950 text-gray-600 border-white/5'
+                  <div className={`h-6 w-6 rounded-full flex items-center justify-center text-[11px] font-bold border z-10 transition-colors ${
+                    currentStep > 4 ? 'bg-ink text-canvas border-ink dark:bg-white dark:text-black dark:border-white' :
+                    currentStep === 4 ? 'bg-link text-white border-link shadow-whisper' :
+                    'bg-canvas-elevated text-mute border-hairline'
                   }`}>
                     {currentStep > 4 ? '✓' : '4'}
                   </div>
                   <div>
-                    <span className={`block font-bold ${currentStep === 4 ? 'text-indigo-400' : currentStep > 4 ? 'text-gray-300' : 'text-gray-600'}`}>
-                      Flag Match Verification
+                    <span className={`block font-medium ${currentStep === 4 ? 'text-ink font-semibold' : currentStep > 4 ? 'text-body' : 'text-mute'}`}>
+                      Validate Extracted Flag
                     </span>
-                    <span className="text-[10px] text-gray-500 block">Check outputs against target database secret flag.</span>
+                    <span className="text-[11px] text-mute block font-sans">Compare exploit JSON flag output against target hash</span>
                   </div>
                 </div>
 
                 {/* Step 5 */}
                 <div className="flex items-start gap-4 relative">
-                  <div className={`h-7 w-7 rounded-full flex items-center justify-center font-bold border z-10 transition ${
-                    pipelineStatus === 'success' ? 'bg-emerald-950 text-emerald-400 border-emerald-500 glow-emerald' :
-                    currentStep === 5 ? 'bg-indigo-950 text-indigo-400 border-indigo-500 glow-purple animate-pulse' :
-                    'bg-slate-950 text-gray-600 border-white/5'
+                  <div className={`h-6 w-6 rounded-full flex items-center justify-center text-[11px] font-bold border z-10 transition-colors ${
+                    pipelineStatus === 'success' ? 'bg-ink text-canvas border-ink dark:bg-white dark:text-black dark:border-white' :
+                    currentStep === 5 ? 'bg-link text-white border-link shadow-whisper' :
+                    'bg-canvas-elevated text-mute border-hairline'
                   }`}>
                     {pipelineStatus === 'success' ? '✓' : '5'}
                   </div>
                   <div>
-                    <span className={`block font-bold ${currentStep === 5 ? 'text-indigo-400' : pipelineStatus === 'success' ? 'text-emerald-400' : 'text-gray-600'}`}>
-                      Automated Blockchain Payout
+                    <span className={`block font-medium ${currentStep === 5 ? 'text-ink font-semibold' : pipelineStatus === 'success' ? 'text-ink font-semibold' : 'text-mute'}`}>
+                      Autonomous Blockchain Release
                     </span>
-                    <span className="text-[10px] text-gray-500 block">Sign payout transactions via smart contract interface.</span>
+                    <span className="text-[11px] text-mute block font-sans">Oracle broadcasts resolveBounty() on Sepolia</span>
                   </div>
                 </div>
 
@@ -937,64 +1066,82 @@ function App() {
 
         </div>
 
-        {/* Live CI Runner Terminal Logs Panel */}
-        <section className="mt-8 border border-white/10 bg-[#04060b] rounded-3xl overflow-hidden scanline relative shadow-2xl">
-          <div className="flex justify-between items-center px-6 py-4 border-b border-white/5 bg-[#080B11]/50 backdrop-blur-sm">
+        {/* Live CI Runner Terminal Logs Panel (Geist code-block) */}
+        <section className="rounded-md border border-hairline bg-[#0a0a0a] text-[#ededed] overflow-hidden shadow-floating">
+          <div className="flex justify-between items-center px-4 py-3 border-b border-[#222222] bg-[#121212]">
             <div className="flex items-center gap-2">
-              <span className="h-3 w-3 rounded-full bg-red-500"></span>
-              <span className="h-3 w-3 rounded-full bg-yellow-500"></span>
-              <span className="h-3 w-3 rounded-full bg-green-500"></span>
-              <span className="text-xs font-mono font-bold text-gray-400 ml-3 flex items-center gap-2">
-                <svg className={`w-3.5 h-3.5 text-cyan-500 ${pipelineStatus === 'running' ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-                CI-RUNNER-CONSOLE: {pipelineStatus.toUpperCase()}
+              <span className="h-2.5 w-2.5 rounded-full bg-[#333333]"></span>
+              <span className="h-2.5 w-2.5 rounded-full bg-[#333333]"></span>
+              <span className="h-2.5 w-2.5 rounded-full bg-[#333333]"></span>
+              <span className="text-xs font-mono font-medium text-[#888888] ml-2">
+                ci-oracle-runner · {pipelineStatus.toUpperCase()}
               </span>
             </div>
             <button 
               onClick={() => setTerminalLogs([])}
-              className="text-[10px] font-mono text-gray-500 hover:text-cyan-400 hover:underline transition"
+              className="text-[11px] font-mono text-[#888888] hover:text-white transition-colors"
             >
-              Clear Logs
+              Clear
             </button>
           </div>
           
-          <div className="p-6 h-64 overflow-y-auto text-left text-xs font-mono text-cyan-400 bg-black/60 terminal-scrollbar select-text leading-relaxed">
+          <div className="p-5 h-64 overflow-y-auto text-left text-xs font-mono bg-[#0a0a0a] terminal-scrollbar select-text leading-relaxed">
             {terminalLogs.length === 0 ? (
-              <div className="text-gray-600 flex flex-col items-center justify-center h-full gap-2 font-sans">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor" className="w-8 h-8 text-gray-700">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M17.25 6.75L22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3l-4.5 16.5" />
-                </svg>
-                <p className="text-xs">Console is idle. Trigger a verification payload above to inspect live pipeline execution output.</p>
+              <div className="text-[#555555] flex flex-col items-center justify-center h-full gap-2 font-mono">
+                <p className="text-xs">Oracle console idle. Submit or trigger verification above to view execution logs.</p>
               </div>
             ) : (
-              <div className="space-y-1.5">
+              <div className="space-y-1">
                 {terminalLogs.map((log, index) => (
-                  <div key={index} className="transition duration-200">
-                    <span className="text-gray-500 mr-2">[{new Date().toLocaleTimeString()}]</span>
+                  <div key={index} className="transition-opacity">
+                    <span className="text-[#555555] mr-2">[{new Date().toLocaleTimeString()}]</span>
                     <span className={
-                      log.includes('[SYSTEM]') ? 'text-indigo-400 font-bold' :
-                      log.includes('[DOCKER]') ? 'text-amber-400' :
-                      log.includes('[EXPLOIT]') ? 'text-cyan-300' :
-                      log.includes('[DATABASE]') ? 'text-gray-400' :
-                      log.includes('[CI-ORACLE]') || log.includes('[CI]') ? 'text-pink-400 font-bold' :
-                      log.includes('VERIFICATION MATCH') || log.includes('SUCCESS') || log.includes('TRANSACTION CONFIRMED') || log.includes('Tracked GitHub') ? 'text-emerald-400 font-bold' :
-                      'text-cyan-400'
+                      log.includes('[SYSTEM]') ? 'text-[#00dfd8]' :
+                      log.includes('[DOCKER]') ? 'text-[#f9cb28]' :
+                      log.includes('[EXPLOIT]') ? 'text-[#50e3c2]' :
+                      log.includes('[DATABASE]') ? 'text-[#a1a1a1]' :
+                      log.includes('[CI-ORACLE]') || log.includes('[CI]') ? 'text-[#eb367f] font-semibold' :
+                      log.includes('VERIFICATION MATCH') || log.includes('SUCCESS') || log.includes('TRANSACTION CONFIRMED') ? 'text-[#50e3c2] font-semibold' :
+                      'text-[#ededed]'
                     }>
                       {log}
                     </span>
                   </div>
                 ))}
-                {pipelineStatus === 'running' && (
-                  <div className="h-1.5 w-1.5 bg-cyan-400 inline-block animate-pulse ml-1"></div>
-                )}
+                <div ref={terminalEndRef} />
               </div>
             )}
           </div>
         </section>
 
       </main>
+
+      {/* Footer (Geist footer) */}
+      <footer className="border-t border-hairline bg-canvas mt-16 py-8 text-center text-xs text-mute font-mono transition-colors">
+        <div className="max-w-6xl mx-auto px-6 flex flex-col sm:flex-row justify-between items-center gap-4">
+          <span>Aegis Escrow — Decentralized Bug Bounty Verification Protocol</span>
+          <div className="flex items-center gap-4">
+            <a 
+              href="https://github.com/Mukul312004/defi-bounty-escrow" 
+              target="_blank" 
+              rel="noreferrer" 
+              className="text-body hover:text-ink transition-colors"
+            >
+              GitHub Repo
+            </a>
+            <span>•</span>
+            <a 
+              href={`https://sepolia.etherscan.io/address/${CONTRACT_ADDRESS}`} 
+              target="_blank" 
+              rel="noreferrer" 
+              className="text-body hover:text-ink transition-colors"
+            >
+              Sepolia Contract
+            </a>
+          </div>
+        </div>
+      </footer>
+
     </div>
   );
 }

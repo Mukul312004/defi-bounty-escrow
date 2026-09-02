@@ -2,69 +2,104 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --canvas: 250 250 250;
+  --canvas-elevated: 255 255 255;
+  --hairline: 235 235 235;
+  --hairline-soft: 242 242 242;
+  --ink: 23 23 23;
+  --body: 77 77 77;
+  --mute: 143 143 143;
+  --faint: 161 161 161;
+  --link-soft: 211 229 255;
+}
+
+.dark {
+  --canvas: 0 0 0;
+  --canvas-elevated: 10 10 10;
+  --hairline: 34 34 34;
+  --hairline-soft: 20 20 20;
+  --ink: 237 237 237;
+  --body: 161 161 161;
+  --mute: 115 115 115;
+  --faint: 64 64 64;
+  --link-soft: 8 38 78;
+}
+
 @layer base {
   body {
-    background-color: #05070c;
-    background-image: 
-      radial-gradient(at 0% 0%, rgba(99, 102, 241, 0.15) 0px, transparent 50%),
-      radial-gradient(at 100% 0%, rgba(139, 92, 246, 0.15) 0px, transparent 50%),
-      radial-gradient(at 50% 100%, rgba(6, 182, 212, 0.1) 0px, transparent 50%);
-    background-attachment: fixed;
-    font-family: 'Inter', sans-serif;
+    background-color: rgb(var(--canvas));
+    color: rgb(var(--body));
+    font-family: 'Geist', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    transition: background-color 0.2s ease, color 0.2s ease;
   }
 
   h1, h2, h3, h4, h5, h6 {
-    font-family: 'Outfit', sans-serif;
+    font-family: 'Geist', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    color: rgb(var(--ink));
+    font-weight: 600;
   }
 
-  code, pre, .mono-font {
-    font-family: 'JetBrains Mono', monospace;
+  code, pre, .font-mono {
+    font-family: 'Geist Mono', 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
   }
 }
 
-/* Custom glowing effects */
-.glow-cyan {
-  box-shadow: 0 0 20px rgba(6, 182, 212, 0.25);
+/* Hero Multi-Stop Mesh Gradient */
+.hero-mesh-gradient {
+  background-image: 
+    radial-gradient(at 20% 20%, rgba(80, 227, 194, 0.18) 0px, transparent 45%),
+    radial-gradient(at 80% 15%, rgba(0, 124, 240, 0.16) 0px, transparent 50%),
+    radial-gradient(at 50% 60%, rgba(121, 40, 202, 0.12) 0px, transparent 55%),
+    radial-gradient(at 85% 85%, rgba(235, 54, 127, 0.12) 0px, transparent 50%),
+    radial-gradient(at 15% 80%, rgba(249, 203, 40, 0.14) 0px, transparent 45%);
 }
 
-.glow-purple {
-  box-shadow: 0 0 20px rgba(139, 92, 246, 0.25);
+.dark .hero-mesh-gradient {
+  background-image: 
+    radial-gradient(at 20% 20%, rgba(80, 227, 194, 0.18) 0px, transparent 50%),
+    radial-gradient(at 80% 15%, rgba(0, 124, 240, 0.22) 0px, transparent 55%),
+    radial-gradient(at 50% 60%, rgba(121, 40, 202, 0.2) 0px, transparent 60%),
+    radial-gradient(at 85% 85%, rgba(235, 54, 127, 0.18) 0px, transparent 55%),
+    radial-gradient(at 15% 80%, rgba(249, 203, 40, 0.15) 0px, transparent 50%);
 }
 
-.glow-emerald {
-  box-shadow: 0 0 20px rgba(16, 185, 129, 0.25);
+/* Custom scrollbars */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
 }
 
-/* Grid background utility */
-.bg-grid-pattern {
-  background-size: 30px 30px;
-  background-image: linear-gradient(to right, rgba(255, 255, 255, 0.02) 1px, transparent 1px),
-                    linear-gradient(to bottom, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
 }
 
-/* Custom animations */
-@keyframes pulse-slow {
-  0%, 100% { opacity: 0.2; }
-  50% { opacity: 0.6; }
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgb(var(--hairline));
+  border-radius: 9999px;
 }
 
-.animate-pulse-slow {
-  animation: pulse-slow 4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--mute));
 }
 
-@keyframes scanline {
-  0% { transform: translateY(-100%); }
-  100% { transform: translateY(100%); }
+/* Terminal dark scrollbar */
+.terminal-scrollbar::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
 }
 
-.scanline::after {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 4px;
-  background: linear-gradient(to bottom, transparent, rgba(6, 182, 212, 0.2), transparent);
-  animation: scanline 6s linear infinite;
-  pointer-events: none;
+.terminal-scrollbar::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.terminal-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 9999px;
+}
+
+.terminal-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.35);
 }
