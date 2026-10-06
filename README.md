@@ -6,16 +6,16 @@ The platform allows protocol owners to lock bounty rewards in an Ethereum smart 
 
 ##  Key Features
 
-- 🔐 Smart-contract-based bounty escrow
-- 🐳 Sandboxed Proof-of-Exploit execution using Docker
-- ⚙️ Automated exploit verification with GitHub Actions
-- 💰 Automatic on-chain bounty payouts
-- 🦊 MetaMask + Ethereum Sepolia integration
-- 🖥️ React-based dashboard
-- 🚀 Express.js REST API
-- 🔒 Isolated exploit execution environment
-- 🛡️ Smart-contract reentrancy protection
-- 🔄 Local Sandbox Mode for testing without a wallet
+-  Smart-contract-based bounty escrow
+-  Sandboxed Proof-of-Exploit execution using Docker
+-  Automated exploit verification with GitHub Actions
+-  Automatic on-chain bounty payouts
+-  MetaMask + Ethereum Sepolia integration
+-  React-based dashboard
+-  Express.js REST API
+-  Isolated exploit execution environment
+-  Smart-contract reentrancy protection
+-  Local Sandbox Mode for testing without a wallet
 
 ##  Architecture
 
