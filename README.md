@@ -1,174 +1,260 @@
-# Automated DeFi Bug Bounty Protocol/System
+# Automated Bug Bounty Escrow Platform
 
-[![Solidity](https://img.shields.io/badge/Solidity-%23363636.svg?style=flat&logo=solidity&logoColor=white)](https://soliditylang.org/)
-[![React](https://img.shields.io/badge/React-19-20232A?style=flat&logo=react&logoColor=61DAFB)](https://react.dev/)
-[![Express.js](https://img.shields.io/badge/Express.js-4.x-000000?style=flat&logo=express&logoColor=white)](https://expressjs.com/)
-[![Vite](https://img.shields.io/badge/Vite-8.x-646CFF?style=flat&logo=vite&logoColor=FFD62E)](https://vitejs.dev/)
-[![Ethereum](https://img.shields.io/badge/Ethereum-Sepolia-3C3C3D?style=flat&logo=ethereum&logoColor=white)](https://sepolia.etherscan.io/)
-[![Docker](https://img.shields.io/badge/Docker-Sandbox-2496ED?style=flat&logo=docker&logoColor=white)](https://www.docker.com/)
+A full-stack bug bounty escrow platform that combines Web3 smart contracts with automated, sandboxed exploit verification.
 
-> **Aegis Escrow** is a trustless, automated bug bounty escrow platform that bridges Web3 smart contracts and automated sandboxed testbeds. Protocol owners lock bounty rewards in an immutable escrow smart contract. Security researchers submit containerized Proof-of-Exploits (PoE). An automated CI/CD oracle verifies the exploit in an isolated Docker sandbox and autonomously releases the locked bounty payout on-chain.
+The platform allows protocol owners to lock bounty rewards in an Ethereum smart contract. Security researchers can submit containerized Proof-of-Exploit (PoE) payloads, which are automatically executed against a vulnerable target inside an isolated Docker environment. If the exploit is successfully verified, the CI/CD oracle triggers the smart contract to release the bounty to the researcher's wallet.
 
----
+##  Key Features
 
-## The Problem & The Solution
+- 🔐 Smart-contract-based bounty escrow
+- 🐳 Sandboxed Proof-of-Exploit execution using Docker
+- ⚙️ Automated exploit verification with GitHub Actions
+- 💰 Automatic on-chain bounty payouts
+- 🦊 MetaMask + Ethereum Sepolia integration
+- 🖥️ React-based dashboard
+- 🚀 Express.js REST API
+- 🔒 Isolated exploit execution environment
+- 🛡️ Smart-contract reentrancy protection
+- 🔄 Local Sandbox Mode for testing without a wallet
 
-| Traditional Bug Bounties  | Aegis Automated Escrow  |
-|---|---|
-| Protocol owners can refuse to pay or ghost researchers after receiving bug details. | Funds are locked in smart contracts upfront before audits begin. |
-| Subjective human triage delays payouts by weeks or months. | Automated CI/CD testbed validates exploits in seconds. |
-| Researchers risk leaking 0-days without guaranteed compensation. | Proof-of-Exploits are executed against isolated sandboxes autonomously. |
-| Manual blockchain transfers required by admins. | Oracle triggers smart contract release directly to the researcher's wallet. |
+##  Architecture
 
----
-
-## Architecture & Workflow
-
+```text
+                    ┌─────────────────────┐
+                    │   Protocol Owner    │
+                    │                     │
+                    │   Create Bounty     │
+                    └──────────┬──────────┘
+                               │
+                               ▼
+                    ┌─────────────────────┐
+                    │  BountyEscrow.sol   │
+                    │  Ethereum Sepolia   │
+                    └──────────┬──────────┘
+                               │
+                               │ Bounty Locked
+                               │
+                               ▼
+                    ┌─────────────────────┐
+                    │ Security Researcher │
+                    │                     │
+                    │ Submit PoE + Wallet │
+                    └──────────┬──────────┘
+                               │
+                               ▼
+                    ┌─────────────────────┐
+                    │    GitHub Actions   │
+                    │      CI/CD Oracle   │
+                    └──────────┬──────────┘
+                               │
+                    ┌──────────▼──────────┐
+                    │    Docker Sandbox   │
+                    │                     │
+                    │ ┌─────────────────┐ │
+                    │ │ Vulnerable App  │ │
+                    │ └────────┬────────┘ │
+                    │          │          │
+                    │ ┌────────▼────────┐ │
+                    │ │ PoE Exploit     │ │
+                    │ │ Container       │ │
+                    │ └────────┬────────┘ │
+                    └──────────┼──────────┘
+                               │
+                        Exploit Verified
+                               │
+                               ▼
+                    ┌─────────────────────┐
+                    │  Verification       │
+                    │  Oracle             │
+                    └──────────┬──────────┘
+                               │
+                         resolveBounty()
+                               │
+                               ▼
+                    ┌─────────────────────┐
+                    │ Researcher Wallet   │
+                    │   Bounty Paid       │
+                    └─────────────────────┘
 ```
- ┌──────────────────┐
- │  Protocol Owner  │── 1. Create Bounty (Lock ETH in Contract)──┐
- └──────────────────┘                                            │
-                                                                 ▼
- ┌──────────────────┐                                   ┌─────────────────┐
- │ Security Hacker  │──  2. Submit PoE Docker Image ───►│  Aegis Escrow   │
- └──────────────────┘                                   │ Smart Contract  │
-                                                        └────────┬────────┘
-                                                                 ▲
- ┌────────────────────────────────────────────────────────┐      │ 5. Trigger
- │             GitHub Actions / CI/CD Oracle              │      │    Payout
- │                                                        │      │
- │  ┌───────────────────────┐   ┌──────────────────────┐  │      │
- │  │ Target Vulnerable App │◄──│ PoE Exploit Payload  │  │──────┘
- │  │   (Docker Sandbox)    │   │  (Docker Container)  │  │
- │  └───────────────────────┘   └──────────────────────┘  │
- │                            │                           │
- │                 4. Secret Flag Validated?              │
- └────────────────────────────────────────────────────────┘
+
+## How It Works
+1. Create a Bounty
+A protocol owner creates a bounty and deposits testnet ETH into the BountyEscrow smart contract.
+2. Submit a Proof-of-Exploit
+A security researcher submits:
+- Docker image containing the exploit
+- Researcher's payout wallet
+- Bounty details
+3. Automated Verification
+GitHub Actions starts the verification workflow and creates an isolated Docker environment containing:
+- The vulnerable target application
+- The submitted exploit container
+The exploit is executed against the target application.
+4. Verify the Exploit
+The verification process checks the exploit output for the expected proof/flag.
+For the included demonstration, the vulnerable application contains a SQL injection vulnerability and the verification process checks for the expected success flag.
+5. Release the Bounty
+If verification succeeds, the verification script calls:
+resolveBounty(bountyId, researcher)
+
+The smart contract then releases the locked bounty to the researcher's wallet.
+
+## Tech Stack
+### Frontend
+- React.js
+- Vite
+- Tailwind CSS
+- Ethers.js
+### Backend
+- Node.js
+- Express.js
+- REST APIs
+### Web3
+- Solidity
+- Ethereum
+- Sepolia Testnet
+- Ethers.js
+- MetaMask
+### Security & Automation
+- Docker
+- GitHub Actions
+- Python
+- Web3.py
+### Development
+- Git
+- GitHub
+- npm
+
+## Project Structure
 ```
-
-### Flow Breakdown:
-1. **Bounty Creation**: Protocol owner deposits ETH into `BountyEscrow.sol` specifying the vulnerability category, target repo, and reward.
-2. **Exploit Submission**: Researcher packages their Proof-of-Exploit script into a Docker container and submits the image tag + payout wallet address.
-3. **Sandboxed Verification**: GitHub Actions spins up an isolated bridge network, boots the vulnerable target app, and runs the exploit container against it.
-4. **Flag Matching**: The CI pipeline inspects exploit output for cryptographic proof/flag match (`flag{sql_injection_success}`).
-5. **Autonomous Payout**: The CI Oracle script signs and broadcasts `resolveBounty(id, researcher)` to release the locked ETH directly to the researcher.
-
----
-
-## Repository Structure
-
-```tree
 defi-bounty-escrow/
-├── contracts/                  # Solidity smart contracts
-│   └── BountyEscrow.sol        # On-chain escrow contract on Sepolia
-├── frontend/                   # React + Vite + Tailwind frontend application
+│
+├── contracts/
+│   └── BountyEscrow.sol
+│
+├── frontend/
 │   ├── src/
-│   │   ├── App.jsx             # Main interactive dashboard & terminal UI
-│   │   ├── api.js              # REST API client bridge to backend
-│   │   ├── constants.js        # Contract ABI & deployed Sepolia address
-│   │   └── index.css           # Glowing cyber-security theme styles
-│   ├── vercel.json             # SPA routing rewrite configuration for Vercel
-│   └── vite.config.js          # Vite configuration with /api dev proxy
-├── backend/                    # Express.js REST API
-│   ├── controllers/            # Bounty and Submission route handlers
-│   ├── routes/                 # Express API routing definitions
-│   ├── store.js                # High-performance in-memory data store for MVP
-│   └── server.js               # Express server entry point
-├── vulnerable-app/             # Example vulnerable target application
-│   ├── app.py                  # Flask web app with SQL Injection vulnerability
-│   ├── init_db.py              # SQLite seed database containing hidden flag
-│   └── Dockerfile              # Container definition for CI testbed
-├── exploit-poe/                # Researcher Proof-of-Exploit payload
-│   ├── exploit.py              # Automated SQL injection exploit script
-│   └── Dockerfile              # Container definition for researcher payload
-├── verification/               # Oracle verification & payout trigger
-│   └── verify_and_payout.py    # Python + Web3.py script that broadcasts payout tx
-└── .github/workflows/          # CI/CD automation
-    └── bounty-ci.yml           # GitHub Actions workflow for end-to-end PoE testing
+│   │   ├── App.jsx
+│   │   ├── api.js
+│   │   ├── constants.js
+│   │   └── index.css
+│   ├── vercel.json
+│   └── vite.config.js
+│
+├── backend/
+│   ├── controllers/
+│   ├── routes/
+│   ├── store.js
+│   └── server.js
+│
+├── vulnerable-app/
+│   ├── app.py
+│   ├── init_db.py
+│   └── Dockerfile
+│
+├── exploit-poe/
+│   ├── exploit.py
+│   └── Dockerfile
+│
+├── verification/
+│   └── verify_and_payout.py
+│
+├── .github/
+│   └── workflows/
+│       └── bounty-ci.yml
+│
+└── DESIGN.md
 ```
 
----
+## Local Setup
 
-## Live Deployments
+Prerequisites
+- Node.js 18+
+- npm 9+
+- Git
+- Docker
 
-- **Frontend App**: Hosted on **Vercel**
-- **Backend API**: Hosted on **Render**
-- **Smart Contract (Sepolia Testnet)**: [`0xF1d74CC50C1Fd533438FFADa8981E221C17d2531`](https://sepolia.etherscan.io/address/0xF1d74CC50C1Fd533438FFADa8981E221C17d2531)
-
----
-
-## Local Quickstart
-
-### Prerequisites
-- **Node.js**: v18+ ([Download](https://nodejs.org/))
-- **npm**: v9+
-- **Git**
-
-### 1. Clone the Repository
-```bash
+1. Clone the repository
+```code
 git clone https://github.com/Mukul312004/defi-bounty-escrow.git
 cd defi-bounty-escrow
 ```
 
-### 2. Start the Backend API
-```bash
+2. Start the backend
+```code
 cd backend
 npm install
 npm start
 ```
-The backend will launch at **`http://localhost:5000`**.
 
-### 3. Start the Frontend Application
-In a new terminal window:
-```bash
+The backend runs on:
+http://localhost:5000
+
+3. Start the frontend
+Open another terminal:
+```code
 cd frontend
 npm install
 npm run dev
 ```
-Open **`http://localhost:5173`** in your browser.
 
----
+Open:
+http://localhost:5173
 
-## How to Test the App
+##Testing
+The application supports two testing modes.
+Local Sandbox Mode
+Local Sandbox Mode allows the application workflow to be tested without connecting a wallet or spending gas.
+1. Open the frontend.
+2. Keep the wallet disconnected.
+3. Create a bounty.
+4. Select the bounty.
+5. Trigger automated verification.
+6. Observe the simulated verification workflow.
 
-### Mode 1: Local Sandbox Mode (Zero Wallet / Gas Required)
-1. Open the frontend at `http://localhost:5173`.
-2. Leave wallet disconnected to operate in **Local Sandbox Mode**.
-3. Create a bounty with reward amount, title, and description.
-4. Select the bounty from the **Escrow Bounty Database** list.
-5. In the **Submit PoE** section, click **"Trigger Automated Verification"**.
-6. Watch the **live CI Runner Terminal** simulate the container startup, exploit execution, flag extraction, and automated escrow payout in real time!
+###Web3 Mode
+The Web3 workflow uses the Ethereum Sepolia testnet.
+1. Connect MetaMask.
+2. Switch to Sepolia.
+3. Create an on-chain bounty.
+4. Deposit testnet ETH.
+5. Submit the Proof-of-Exploit details.
+6. Trigger the verification workflow.
+7. GitHub Actions verifies the exploit.
+8. The oracle calls resolveBounty().
+9. The bounty is released to the researcher's wallet.
 
-### Mode 2: Web3 Mode (Sepolia Testnet)
-1. Click **"Connect Wallet"** in the header and switch to **Sepolia Testnet**.
-2. Create an on-chain bounty — MetaMask will prompt you to deposit testnet ETH.
-3. Once confirmed, the bounty is locked in the `BountyEscrow` smart contract.
-4. Submit a Docker Proof-of-Exploit image tag and your payout wallet address.
-5. The backend dispatches the GitHub Actions pipeline, which tests the exploit and signs the `resolveBounty()` transaction to pay your wallet automatically.
-
----
-
-## Smart Contract Reference
-
-### `BountyEscrow.sol`
-Deployed on **Ethereum Sepolia**: `0xF1d74CC50C1Fd533438FFADa8981E221C17d2531`
-
-```solidity
+## Smart Contract
+The BountyEscrow.sol contract is deployed on Ethereum Sepolia.
+Main functions
+```code
 function createBounty() external payable;
-function resolveBounty(uint256 _bountyId, address payable _researcher) external onlyOracle;
-function bounties(uint256) view returns (address creator, uint256 amount, bool isActive);
-function bountyCounter() view returns (uint256);
+
+function resolveBounty(
+    uint256 _bountyId,
+    address payable _researcher
+) external onlyOracle;
 ```
 
----
+The contract stores bounty information and controls the release of escrowed funds.
 
 ## Security Considerations
+Reentrancy Protection
+The payout logic follows the Checks-Effects-Interactions pattern, updating bounty state before transferring ETH.
+Oracle Authorization
+Only the designated oracle address can call resolveBounty().
+Sandboxed Exploit Execution
+Proof-of-Exploit payloads are executed inside isolated Docker containers rather than directly on the host environment.
 
-- **Reentrancy Protection**: State updates in `resolveBounty` occur before the external ETH transfer (`Checks-Effects-Interactions` pattern).
-- **Oracle Isolation**: Only the designated Oracle address (authenticated GitHub Actions runner) has permissions to invoke `resolveBounty`.
-- **Sandboxed Execution**: Researcher exploit payloads run inside unprivileged, ephemeral Docker containers on an isolated bridge network with zero host filesystem access.
+## Deployment
+- Frontend: Vercel
+- Backend: Render
+- Smart Contract: Ethereum Sepolia Testnet
+Contract Address
+0xF1d74CC50C1Fd533438FFADa8981E221C17d2531
 
----
+## Project Status
+This project is an MVP/prototype demonstrating automated bug bounty verification and escrow-based payouts.
 
-## 📄 License
-This project is open source and available under the [MIT License](LICENSE).
+## License
+This project is licensed under the MIT License.
